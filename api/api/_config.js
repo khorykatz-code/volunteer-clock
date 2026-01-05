@@ -16,10 +16,10 @@ export const CFG = {
 
   // LOGS FIELDS
   LOG_ID_FIELD: "LogID",                       // make sure your Logs primary field is exactly LogID
-  LOG_MEMBER_LINK_FIELD: "Member",             // make sure Logs has a linked field to MASTER MEMBERSHIP named exactly "Member"
-  LOG_ACTIVITY_LINK_FIELD: "Activity",         // make sure Logs links to Activities with field named exactly "Activity"
-  LOG_START_FIELD: "Start",
-  LOG_END_FIELD: "End",
+  LOG_MEMBER_LINK_FIELD: "MemberNumber",             // make sure Logs has a linked field to MASTER MEMBERSHIP named exactly "Member"
+  LOG_ACTIVITY_LINK_FIELD: "WHActivity",         // make sure Logs links to Activities with field named exactly "Activity"
+  LOG_START_FIELD: "StartTime",
+  LOG_END_FIELD: "EndTime",
   LOG_REMINDER_SENT_FIELD: "ReminderSentAt",
   LOG_CLOCKOUT_TOKEN_FIELD: "ClockOutToken",
   LOG_CLOCKOUT_TOKEN_EXPIRES_FIELD: "ClockOutTokenExpires",
