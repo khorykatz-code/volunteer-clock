@@ -8,8 +8,6 @@ module.exports = async (req, res) => {
     return res.status(200).end();
   }
 
-
-
 function makeLogId() {
   return `LOG-${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 8)}`;
 }
