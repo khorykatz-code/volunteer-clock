@@ -7,20 +7,24 @@ module.exports = async (req, res) => {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
 
   try {
-    const { memberId } = req.body || {};
-    if (!memberId) return res.status(400).json({ error: "memberId is required" });
+    const memberNumber = String(req.body?.memberNumber ?? "").trim();
+    if (!/^\d{1,4}$/.test(memberNumber)) {
+      return res.status(400).json({ error: "memberNumber is required (1–4 digits)" });
+    }
 
     const baseId = process.env.AIRTABLE_BASE_ID;
     const token = process.env.AIRTABLE_PAT;
 
     const logsTable = "Work Hour Log 2 (2026+)";
-    const memberLinkField = "MemberNumber"; // linked record to MASTER MEMBERSHIP
     const startField = "StartTime";
     const endField = "EndTime";
 
-    // Find open log for this member (EndTime is blank)
+    // Your lookup field in Logs:
+    const memNumField = "MemNum";
+
+    // Find open log where MemNum matches and EndTime is blank
     const findUrl = new URL(`https://api.airtable.com/v0/${baseId}/${encodeURIComponent(logsTable)}`);
-    const filter = `AND(FIND("${memberId}", ARRAYJOIN({${memberLinkField}})), {${endField}}=BLANK())`;
+    const filter = `AND({${memNumField}}=${Number(memberNumber)}, {${endField}}=BLANK())`;
     findUrl.searchParams.set("filterByFormula", filter);
     findUrl.searchParams.set("maxRecords", "1");
 
@@ -30,24 +34,21 @@ module.exports = async (req, res) => {
 
     const data = JSON.parse(t1);
     const open = data.records?.[0];
-    if (!open) {
-      return res.status(200).json({ status: "no_open_shift" });
-    }
+    if (!open) return res.status(200).json({ status: "no_open_shift" });
 
     const nowIso = new Date().toISOString();
 
-    // Patch the log record with EndTime
+    // Patch EndTime
     const patchUrl = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(logsTable)}/${open.id}`;
-    const payload = { fields: { [endField]: nowIso } };
-
     const r2 = await fetch(patchUrl, {
       method: "PATCH",
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json"
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify({ fields: { [endField]: nowIso } })
     });
+
     const t2 = await r2.text();
     if (!r2.ok) return res.status(r2.status).json({ error: t2 });
 
@@ -56,7 +57,7 @@ module.exports = async (req, res) => {
     res.status(200).json({
       status: "signed_out",
       logRecordId: updated.id,
-      startedAt: updated.fields?.[startField] || open.fields?.[startField] || null,
+      startedAt: updated.fields?.[startField] || null,
       endedAt: updated.fields?.[endField] || nowIso
     });
   } catch (e) {
