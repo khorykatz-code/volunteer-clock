@@ -1,3 +1,15 @@
+module.exports = async (req, res) => {
+  // ---- CORS ----
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+
+
+
 function makeLogId() {
   return `LOG-${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 8)}`;
 }
