@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Volunteer Clock</title>
+
+  <!-- Tailwind (CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- QR scanner (CDN) -->
+  <script src="https://unpkg.com/html5-qrcode@2.3.10/html5-qrcode.min.js"></script>
+
+  <style>
+    /* Make it feel kiosk-like */
+    html, body { height: 100%; }
+    .glass { backdrop-filter: blur(10px); background: rgba(255,255,255,0.72); }
+  </style>
+</head>
+
+<body class="min-h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 text-slate-100">
+  <div class="max-w-5xl mx-auto px-4 py-8">
+    <!-- Header -->
+    <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-8">
+      <div>
+        <h1 class="text-3xl md:text-4xl font-semibold tracking-tight">Volunteer Clock</h1>
+        <p class="text-slate-300 mt-1">Scan your QR code or enter your member number, choose an activity, then clock in/out.</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <span id="envBadge" class="text-xs px-3 py-1 rounded-full bg-slate-700/60 border border-slate-600/60">Live</span>
+        <button id="resetBtn" class="px-4 py-2 rounded-xl bg-slate-700/60 hover:bg-slate-700 border border-slate-600/60">
+          Reset
+        </button>
+      </div>
+    </div>
+
+    <!-- Status banner -->
+    <div id="banner" class="hidden mb-6 rounded-2xl border px-4 py-3"></div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <!-- Left: Scanner + manual entry -->
+      <div class="glass rounded-3xl border border-white/10 shadow-xl p-5">
+        <div class="flex items-center justify-between">
+          <h2 class="text-xl font-semibold text-slate-900">Scan</h2>
+          <div class="flex gap-2">
+            <button id="startScanBtn" class="px-4 py-2 rounded-xl bg-slate-900 text-white hover:bg-slate-800">
+              Start camera
+            </button>
+            <button id="stopScanBtn" class="px-4 py-2 rounded-xl bg-slate-200 text-slate-900 hover:bg-slate-100 border border-slate-300 hidden">
+              Stop
+            </button>
+          </div>
+        </div>
+
+        <p class="text-sm text-slate-600 mt-2">
+          QR code should contain the member number (1–4 digits).
+        </p>
+
+        <div class="mt-4 rounded-2xl overflow-hidden border border-slate-200 bg-white">
+          <div id="qr-reader" class="w-full"></div>
+        </div>
+
+        <div class="mt-5">
+          <label class="block text-sm font-medium text-slate-700 mb-1">Or enter member number</label>
+          <div class="flex gap-2">
+            <input id="memberInput" inputmode="numeric" pattern="[0-9]*"
+                   class="flex-1 px-4 py-3 rounded-2xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-900 text-slate-900 text-lg"
+                   placeholder="e.g. 823" />
+            <button id="lookupBtn" class="px-5 py-3 rounded-2xl bg-slate-900 text-white hover:bg-slate-800">
+              Lookup
+            </button>
+          </div>
+          <p class="text-xs text-slate-500 mt-2">Tip: press Enter after typing the number.</p>
+        </div>
+      </div>
+
+      <!-- Right: Member + activity + actions -->
+      <div class="glass rounded-3xl border border-white/10 shadow-xl p-5">
+        <h2 class="text-xl font-semibold text-slate-900">Member & Activity</h2>
+
+        <!-- Member card -->
+        <div class="mt-4 rounded-3xl border border-slate-200 bg-white p-5">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <div class="text-sm text-slate-500">Member</div>
+              <div id="memberName" class="text-2xl font-semibold text-slate-900">—</div>
+              <div id="memberMeta" class="text-sm text-slate-600 mt-1">Not loaded</div>
+            </div>
+            <div class="text-right">
+              <div class="text-sm text-slate-500">Member #</div>
+              <div id="memberNum" class="text-3xl font-semibold text-slate-900">—</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Activity picker -->
+        <div class="mt-5">
+          <label class="block text-sm font-medium text-slate-700 mb-1">Select activity</label>
+          <select id="activitySelect"
+                  class="w-full px-4 py-3 rounded-2xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-900 text-slate-900 text-lg bg-white">
+            <option value="">Loading…</option>
+          </select>
+          <p class="text-xs text-slate-500 mt-2">Only Active activities are shown.</p>
+        </div>
+
+        <!-- Actions -->
+        <div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-3">
+          <button id="clockInBtn"
+                  class="py-4 rounded-3xl bg-emerald-600 hover:bg-emerald-500 text-white text-xl font-semibold disabled:opacity-40 disabled:cursor-not-allowed">
+            Clock In
+          </button>
+          <button id="clockOutBtn"
+                  class="py-4 rounded-3xl bg-indigo-600 hover:bg-indigo-500 text-white text-xl font-semibold disabled:opacity-40 disabled:cursor-not-allowed">
+            Clock Out
+          </button>
+        </div>
+
+        <!-- Footer help -->
+        <div class="mt-4 text-xs text-slate-600">
+          Clock Out will close the currently open shift (one open shift per member).
+        </div>
+      </div>
+    </div>
+
+    <div class="mt-8 text-xs text-slate-400">
+      <span class="opacity-80">If the camera doesn’t start:</span> allow camera permission in your browser.
+    </div>
+  </div>
+
+  <script>
+    // ----------------------------
+    // State
+    // ----------------------------
+    const state = {
+      member: null,       // {id, number, name, phoneE164}
+      activities: [],     // [{id, name, mode, active}]
+      scanning: false,
+      scanner: null,
+    };
+
+    // ----------------------------
+    // Helpers
+    // ----------------------------
+    const $ = (id) => document.getElementById(id);
+
+    function showBanner(type, msg) {
+      const el = $("banner");
+      el.classList.remove("hidden");
+      const base = "rounded-2xl border px-4 py-3";
+      if (type === "success") el.className = `${base} bg-emerald-50 text-emerald-900 border-emerald-200`;
+      if (type === "error")   el.className = `${base} bg-rose-50 text-rose-900 border-rose-200`;
+      if (type === "info")    el.className = `${base} bg-slate-50 text-slate-900 border-slate-200`;
+      el.textContent = msg;
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    function clearBanner() {
+      $("banner").classList.add("hidden");
+      $("banner").textContent = "";
+    }
+
+    function onlyDigits1to4(s) {
+      const t = String(s || "").trim();
+      return /^\d{1,4}$/.test(t) ? t : null;
+    }
+
+    function setMemberUI(memberNumberText = "—", name = "—", meta = "Not loaded") {
+      $("memberNum").textContent = memberNumberText;
+      $("memberName").textContent = name;
+      $("memberMeta").textContent = meta;
+    }
+
+    function setButtonsEnabled() {
+      const hasMember = !!state.member?.id;
+      const activityId = $("activitySelect").value;
+      $("clockInBtn").disabled = !(hasMember && activityId);
+      $("clockOutBtn").disabled = !(hasMember);
+    }
+
+    // ----------------------------
+    // API calls
+    // ----------------------------
+    async function fetchActivities() {
+      const r = await fetch("/api/activities");
+      const data = await r.json();
+      if (!r.ok) throw new Error(data?.error || "Failed to fetch activities");
+
+      state.activities = data.activities || [];
+      const select = $("activitySelect");
+      select.innerHTML = "";
+
+      if (!state.activities.length) {
+        const opt = document.createElement("option");
+        opt.value = "";
+        opt.textContent = "No active activities found";
+        select.appendChild(opt);
+        return;
+      }
+
+      const placeholder = document.createElement("option");
+      placeholder.value = "";
+      placeholder.textContent = "Choose an activity…";
+      select.appendChild(placeholder);
+
+      for (const a of state.activities) {
+        const opt = document.createElement("option");
+        opt.value = a.id;
+        opt.textContent = `${a.name} (${a.mode || "—"})`;
+        select.appendChild(opt);
+      }
+    }
+
+    async function lookupMemberByNumber(memberNumber) {
+      const r = await fetch(`/api/member?number=${encodeURIComponent(memberNumber)}`);
+      const data = await r.json();
+      if (!r.ok) throw new Error(data?.error || "Member lookup failed");
+
+      state.member = data.member;
+      setMemberUI(
+        String(state.member.number ?? memberNumber),
+        state.member.name || "—",
+        state.member.phoneE164 ? `Phone: ${state.member.phoneE164}` : "Phone: —"
+      );
+      setButtonsEnabled();
+    }
+
+    async function clockIn() {
+      const activityId = $("activitySelect").value;
+      if (!state.member?.id) return showBanner("error", "Lookup a member first.");
+      if (!activityId) return showBanner("error", "Select an activity.");
+
+      const body = {
+        memberId: state.member.id,
+        memberNumber: Number(state.member.number),
+        activityId
+      };
+
+      const r = await fetch("/api/record", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+
+      const data = await r.json();
+      if (!r.ok) throw new Error(data?.error || "Clock in failed");
+
+      if (data.status === "shift_started") {
+        showBanner("success", `Clocked in: ${data.activityName || "Activity"} ✅`);
+      } else if (data.status === "already_open") {
+        showBanner("info", `Already clocked in (open shift started ${data.openSince || "earlier"}).`);
+      } else if (data.status === "attendance_recorded") {
+        showBanner("success", `Attendance recorded: ${data.activityName || "Activity"} ✅`);
+      } else {
+        showBanner("info", `Result: ${data.status}`);
+      }
+    }
+
+    async function clockOut() {
+      if (!state.member?.number) return showBanner("error", "Lookup a member first.");
+
+      const r = await fetch("/api/signout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ memberNumber: Number(state.member.number) })
+      });
+
+      const data = await r.json();
+      if (!r.ok) throw new Error(data?.error || "Clock out failed");
+
+      if (data.status === "signed_out") {
+        showBanner("success", "Clocked out ✅");
+      } else if (data.status === "no_open_shift") {
+        showBanner("info", "No open shift found for this member.");
+      } else {
+        showBanner("info", `Result: ${data.status}`);
+      }
+    }
+
+    // ----------------------------
+    // QR Scanner
+    // ----------------------------
+    async function startScanner() {
+      if (state.scanning) return;
+      clearBanner();
+
+      const readerId = "qr-reader";
+      $("startScanBtn").disabled = true;
+
+      try {
+        state.scanner = new Html5Qrcode(readerId);
+        state.scanning = true;
+
+        $("stopScanBtn").classList.remove("hidden");
+
+        await state.scanner.start(
+          { facingMode: "environment" },
+          { fps: 12, qrbox: { width: 260, height: 260 } },
+          async (decodedText) => {
+            const memberNum = onlyDigits1to4(decodedText);
+            if (!memberNum) return; // ignore non-matching codes
+            $("memberInput").value = memberNum;
+            await lookupMemberByNumber(memberNum);
+            showBanner("success", `Scanned member #${memberNum} ✅`);
+          }
+        );
+      } catch (e) {
+        showBanner("error", `Camera error: ${e.message || e}`);
+        state.scanning = false;
+      } finally {
+        $("startScanBtn").disabled = false;
+      }
+    }
+
+    async function stopScanner() {
+      if (!state.scanning || !state.scanner) return;
+      try {
+        await state.scanner.stop();
+        await state.scanner.clear();
+      } catch {}
+      state.scanning = false;
+      state.scanner = null;
+      $("stopScanBtn").classList.add("hidden");
+      showBanner("info", "Camera stopped.");
+    }
+
+    // ----------------------------
+    // Wire up UI
+    // ----------------------------
+    $("lookupBtn").addEventListener("click", async () => {
+      clearBanner();
+      const memberNum = onlyDigits1to4($("memberInput").value);
+      if (!memberNum) return showBanner("error", "Member number must be 1–4 digits.");
+      try {
+        await lookupMemberByNumber(memberNum);
+        showBanner("success", `Loaded member #${memberNum} ✅`);
+      } catch (e) {
+        showBanner("error", e.message || String(e));
+      }
+    });
+
+    $("memberInput").addEventListener("keydown", async (e) => {
+      if (e.key === "Enter") $("lookupBtn").click();
+    });
+
+    $("activitySelect").addEventListener("change", setButtonsEnabled);
+
+    $("clockInBtn").addEventListener("click", async () => {
+      clearBanner();
+      try { await clockIn(); } catch (e) { showBanner("error", e.message || String(e)); }
+    });
+
+    $("clockOutBtn").addEventListener("click", async () => {
+      clearBanner();
+      try { await clockOut(); } catch (e) { showBanner("error", e.message || String(e)); }
+    });
+
+    $("startScanBtn").addEventListener("click", startScanner);
+    $("stopScanBtn").addEventListener("click", stopScanner);
+
+    $("resetBtn").addEventListener("click", async () => {
+      clearBanner();
+      $("memberInput").value = "";
+      $("activitySelect").value = "";
+      state.member = null;
+      setMemberUI();
+      setButtonsEnabled();
+      await stopScanner();
+      showBanner("info", "Reset.");
+    });
+
+    // ----------------------------
+    // Init
+    // ----------------------------
+    (async function init() {
+      setMemberUI();
+      setButtonsEnabled();
+
+      try {
+        await fetchActivities();
+        $("activitySelect").value = "";
+        setButtonsEnabled();
+      } catch (e) {
+        $("activitySelect").innerHTML = `<option value="">Failed to load activities</option>`;
+        showBanner("error", e.message || String(e));
+      }
+    })();
+  </script>
+</body>
+</html>
