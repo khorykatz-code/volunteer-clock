@@ -5,6 +5,7 @@ on:
     # GitHub schedules are UTC.
     # 11:59 PM Eastern = 04:59 UTC during Standard Time (winter).
     - cron: "59 4 * * *"
+    - cron: "59 3 * * *"
   workflow_dispatch: {}
 
 jobs:
