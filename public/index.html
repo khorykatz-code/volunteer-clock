@@ -293,13 +293,10 @@
       const bar = $("progressBar");
 
       if (n === 1) {
-  subtitle.textContent = "Step 1 of 3 — Scan or enter member number";
-  bar.className = "h-2 w-1/3 bg-emerald-500";
-
-  // ⏱ defer focus so DOM + Tailwind settle first
-  setTimeout(() => focusMemberInput(false), 50);
-}
-
+        subtitle.textContent = "Step 1 of 3 — Scan or enter member number";
+        bar.className = "h-2 w-1/3 bg-emerald-500";
+        // ✅ scanner-safety: ensure focus after the step becomes visible
+        setTimeout(() => focusMemberInput(false), 50);
       } else if (n === 2) {
         subtitle.textContent = "Step 2 of 3 — Choose activity and clock in/out";
         bar.className = "h-2 w-2/3 bg-emerald-500";
@@ -319,6 +316,7 @@
 
     function focusMemberInput(select = true) {
       const inp = $("memberInput");
+      if (!inp) return;
       inp.focus();
       if (select) inp.select();
     }
@@ -360,9 +358,8 @@
       setMemberUI();
       hideKeypad();
       showStep(1);
-      
-  // 🔁 guarantee scanner focus after auto-reset
-  setTimeout(() => focusMemberInput(false), 50);
+      // ✅ scanner-safety: focus after reset
+      setTimeout(() => focusMemberInput(false), 50);
     }
 
     function showResult({ kind, title, subtitle, details }) {
@@ -395,11 +392,6 @@
         resetAll();
       }, 4500);
     }
-// 🔒 Always force focus back to Member # input (scanner safety)
-document.addEventListener("click", () => {
-  const step1Visible = !$("step1").classList.contains("hidden");
-  if (step1Visible) focusMemberInput(false);
-});
 
     // ----------------------------
     // Keypad
@@ -408,11 +400,14 @@ document.addEventListener("click", () => {
       state.keypadVisible = true;
       $("keypadArea").classList.remove("hidden");
       $("keypadHint").classList.add("hidden");
+      // keep focus on input for scanner safety even when keypad is open
+      setTimeout(() => focusMemberInput(false), 0);
     }
     function hideKeypad() {
       state.keypadVisible = false;
       $("keypadArea").classList.add("hidden");
       $("keypadHint").classList.remove("hidden");
+      setTimeout(() => focusMemberInput(false), 0);
     }
     function appendDigit(d) {
       const inp = $("memberInput");
@@ -632,8 +627,21 @@ document.addEventListener("click", () => {
     $("enterBtn").addEventListener("click", () => doLookup());
     document.querySelectorAll(".key").forEach(btn => btn.addEventListener("click", () => appendDigit(btn.dataset.k)));
 
-    // keep focus for scanners
+    // keep focus for scanners when tab/window regains focus
     window.addEventListener("focus", () => focusMemberInput(false));
+
+    // ✅ Scanner-safety: if Step 1 is visible, refocus Member # after ANY tap/click
+    // Use capture + setTimeout so we don't interfere with button clicks.
+    function enforceMemberFocusIfStep1Visible() {
+      const step1Visible = !$("step1").classList.contains("hidden");
+      if (!step1Visible) return;
+
+      // If the click was on the activity select (Step 2) or something else, ignore.
+      // Since Step 1 is visible, safe to enforce.
+      setTimeout(() => focusMemberInput(false), 0);
+    }
+    document.addEventListener("click", enforceMemberFocusIfStep1Visible, true);
+    document.addEventListener("touchstart", enforceMemberFocusIfStep1Visible, true);
 
     // ----------------------------
     // Init
@@ -652,7 +660,8 @@ document.addEventListener("click", () => {
         $("activitySelect").innerHTML = `<option value="">Failed to load activities</option>`;
       }
 
-      focusMemberInput(false);
+      // ✅ scanner-safety: initial focus
+      setTimeout(() => focusMemberInput(false), 50);
     })();
   </script>
 </body>
