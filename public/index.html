@@ -10,7 +10,7 @@
 
   <style>
     html, body { height: 100%; }
-    .glass { backdrop-filter: blur(10px); background: rgba(255,255,255,0.82); }
+    .glass { backdrop-filter: blur(10px); background: rgba(255,255,255,0.84); }
     .kiosk-shadow { box-shadow: 0 20px 60px rgba(0,0,0,0.35); }
     .btn { -webkit-tap-highlight-color: transparent; }
     .pulse-soft { animation: pulseSoft 1.2s ease-in-out infinite; }
@@ -25,18 +25,13 @@
       <div>
         <h1 class="text-3xl md:text-4xl font-semibold tracking-tight">Volunteer Clock (Kiosk)</h1>
         <p class="text-slate-300 mt-1">
-          Scan with the handheld scanner (types Member # + Enter), or use the keypad. Then choose an activity and clock in/out.
+          Scan with the handheld scanner (types Member # + Enter), or use the on-screen keypad. Then choose an activity and clock in/out.
         </p>
       </div>
 
       <div class="flex items-center gap-2">
-        <button id="keypadToggleBtn"
-                class="btn px-4 py-2 rounded-xl bg-slate-700/60 hover:bg-slate-700 border border-slate-600/60">
-          Keypad
-        </button>
-
         <button id="resetBtn"
-                class="btn px-4 py-2 rounded-xl bg-slate-700/60 hover:bg-slate-700 border border-slate-600/60">
+                class="btn px-5 py-3 rounded-2xl bg-slate-700/60 hover:bg-slate-700 border border-slate-600/60 text-lg">
           Reset
         </button>
       </div>
@@ -52,7 +47,7 @@
           <div>
             <h2 class="text-xl font-semibold">Ready</h2>
             <p class="text-sm text-slate-600 mt-1">
-              Keep the cursor in the Member # box. Scanner will type it automatically. Touchscreen users can use the keypad.
+              Tap the Member # box once if needed. Kiosk stays focused for fast scanning.
             </p>
           </div>
 
@@ -77,56 +72,68 @@
               placeholder="Scan or type…"
             />
             <button id="lookupBtn"
-                    class="btn px-5 py-4 rounded-2xl bg-slate-900 text-white hover:bg-slate-800 text-lg font-semibold">
+                    class="btn px-6 py-4 rounded-2xl bg-slate-900 text-white hover:bg-slate-800 text-xl font-semibold">
               Lookup
             </button>
           </div>
 
-          <div class="mt-3 flex flex-wrap items-center gap-2">
-            <div class="text-xs text-slate-500">Allowed: 1–4 digits.</div>
+          <!-- Big touch-friendly controls under member input -->
+          <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+            <button id="keypadToggleBtn"
+                    class="btn w-full px-6 py-5 rounded-3xl bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-900 text-2xl font-semibold">
+              Open Keypad
+            </button>
 
-            <label class="ml-auto flex items-center gap-2 text-xs text-slate-700 select-none">
-              <input id="autoClockOutToggle" type="checkbox" checked class="w-4 h-4">
-              Auto clock-out if already clocked in
+            <label class="w-full flex items-center justify-between gap-3 px-6 py-5 rounded-3xl bg-white border border-slate-200 text-slate-900 select-none">
+              <div>
+                <div class="text-base font-semibold leading-tight">Auto clock-out</div>
+                <div class="text-sm text-slate-600 leading-tight">If already clocked in, clock out then clock in.</div>
+              </div>
+              <input id="autoClockOutToggle" type="checkbox" checked class="w-6 h-6">
             </label>
+          </div>
+
+          <div class="mt-2 text-sm text-slate-600">
+            Allowed: <b>1–4 digits</b>.
           </div>
 
           <!-- Keypad (optional) -->
           <div id="keypadWrap" class="hidden mt-5">
             <div class="rounded-3xl border border-slate-200 bg-white p-4">
               <div class="flex items-center justify-between">
-                <div class="text-sm font-medium text-slate-800">On-screen keypad</div>
-                <button id="keypadCloseBtn" class="btn text-sm px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 border border-slate-200">
+                <div class="text-base font-semibold text-slate-800">On-screen keypad</div>
+                <button id="keypadCloseBtn" class="btn text-base px-4 py-3 rounded-2xl bg-slate-100 hover:bg-slate-200 border border-slate-200">
                   Close
                 </button>
               </div>
 
               <div class="grid grid-cols-3 gap-3 mt-4">
-                <!-- digits -->
-                <button class="btn key px-0 py-5 rounded-2xl bg-slate-900 text-white text-2xl font-semibold" data-k="1">1</button>
-                <button class="btn key px-0 py-5 rounded-2xl bg-slate-900 text-white text-2xl font-semibold" data-k="2">2</button>
-                <button class="btn key px-0 py-5 rounded-2xl bg-slate-900 text-white text-2xl font-semibold" data-k="3">3</button>
-                <button class="btn key px-0 py-5 rounded-2xl bg-slate-900 text-white text-2xl font-semibold" data-k="4">4</button>
-                <button class="btn key px-0 py-5 rounded-2xl bg-slate-900 text-white text-2xl font-semibold" data-k="5">5</button>
-                <button class="btn key px-0 py-5 rounded-2xl bg-slate-900 text-white text-2xl font-semibold" data-k="6">6</button>
-                <button class="btn key px-0 py-5 rounded-2xl bg-slate-900 text-white text-2xl font-semibold" data-k="7">7</button>
-                <button class="btn key px-0 py-5 rounded-2xl bg-slate-900 text-white text-2xl font-semibold" data-k="8">8</button>
-                <button class="btn key px-0 py-5 rounded-2xl bg-slate-900 text-white text-2xl font-semibold" data-k="9">9</button>
+                <button class="btn key py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="1">1</button>
+                <button class="btn key py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="2">2</button>
+                <button class="btn key py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="3">3</button>
 
-                <button id="bkspBtn" class="btn px-0 py-5 rounded-2xl bg-slate-200 text-slate-900 text-lg font-semibold border border-slate-300">
+                <button class="btn key py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="4">4</button>
+                <button class="btn key py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="5">5</button>
+                <button class="btn key py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="6">6</button>
+
+                <button class="btn key py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="7">7</button>
+                <button class="btn key py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="8">8</button>
+                <button class="btn key py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="9">9</button>
+
+                <button id="bkspBtn" class="btn py-6 rounded-2xl bg-slate-200 text-slate-900 text-2xl font-semibold border border-slate-300">
                   ⌫
                 </button>
-                <button class="btn key px-0 py-5 rounded-2xl bg-slate-900 text-white text-2xl font-semibold" data-k="0">0</button>
-                <button id="clearBtn" class="btn px-0 py-5 rounded-2xl bg-slate-200 text-slate-900 text-lg font-semibold border border-slate-300">
+                <button class="btn key py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="0">0</button>
+                <button id="clearBtn" class="btn py-6 rounded-2xl bg-slate-200 text-slate-900 text-2xl font-semibold border border-slate-300">
                   Clear
                 </button>
 
-                <button id="enterBtn" class="btn col-span-3 py-5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white text-2xl font-semibold">
+                <button id="enterBtn" class="btn col-span-3 py-6 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white text-3xl font-semibold">
                   Enter / Lookup
                 </button>
               </div>
 
-              <div class="mt-3 text-xs text-slate-500">
+              <div class="mt-3 text-sm text-slate-600">
                 Tip: Tap “Enter / Lookup” after typing.
               </div>
             </div>
@@ -142,19 +149,19 @@
               </div>
               <div class="text-right">
                 <div class="text-sm text-slate-500">Member #</div>
-                <div id="memberNum" class="text-4xl font-semibold text-slate-900">—</div>
+                <div id="memberNum" class="text-5xl font-semibold text-slate-900">—</div>
               </div>
             </div>
 
             <!-- Notice pill for already-open -->
-            <div id="alreadyOpenPill" class="hidden mt-4 px-4 py-3 rounded-2xl border border-amber-300 bg-amber-50 text-amber-900 pulse-soft">
-              <div class="font-semibold text-lg">Already Clocked In</div>
-              <div id="alreadyOpenText" class="text-sm mt-1">This member has an open shift.</div>
+            <div id="alreadyOpenPill" class="hidden mt-4 px-4 py-4 rounded-2xl border border-amber-300 bg-amber-50 text-amber-900 pulse-soft">
+              <div class="font-semibold text-xl">Already Clocked In</div>
+              <div id="alreadyOpenText" class="text-base mt-1">This member has an open shift.</div>
             </div>
           </div>
 
-          <div class="mt-4 text-xs text-slate-600">
-            If scans aren’t showing up, tap the Member # field once and try again.
+          <div class="mt-4 text-sm text-slate-700">
+            If scanning isn’t working, tap inside the Member # box once and try again.
           </div>
         </div>
       </div>
@@ -167,44 +174,44 @@
           <label class="block text-sm font-medium text-slate-700 mb-2">Select activity</label>
           <select
             id="activitySelect"
-            class="w-full px-5 py-4 rounded-2xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-900 text-slate-900 text-2xl bg-white"
+            class="w-full px-5 py-5 rounded-2xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-900 text-slate-900 text-2xl bg-white"
           >
             <option value="">Loading…</option>
           </select>
-          <p class="text-xs text-slate-500 mt-2">Only Active activities are shown.</p>
+          <p class="text-sm text-slate-600 mt-2">Only Active activities are shown.</p>
         </div>
 
         <div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-3">
           <button
             id="clockInBtn"
-            class="btn py-6 rounded-3xl bg-emerald-600 hover:bg-emerald-500 text-white text-3xl font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
+            class="btn py-7 rounded-3xl bg-emerald-600 hover:bg-emerald-500 text-white text-4xl font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Clock In
           </button>
           <button
             id="clockOutBtn"
-            class="btn py-6 rounded-3xl bg-indigo-600 hover:bg-indigo-500 text-white text-3xl font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
+            class="btn py-7 rounded-3xl bg-indigo-600 hover:bg-indigo-500 text-white text-4xl font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Clock Out
           </button>
         </div>
 
-        <div class="mt-4 text-sm text-slate-700">
-          <b>Auto clock-out</b> (toggle on the left) will close their open shift and clock them into the selected activity in one tap.
+        <div class="mt-4 text-base text-slate-700">
+          <b>Auto clock-out</b> will close their open shift and then clock them into the selected activity.
         </div>
 
         <div class="mt-6 rounded-2xl border border-slate-200 bg-white p-4">
-          <div class="text-sm font-medium text-slate-800">Touchscreen tips</div>
-          <ul class="mt-2 text-sm text-slate-700 list-disc pl-5 space-y-1">
-            <li>Use “Keypad” if you don’t have a scanner</li>
-            <li>Big buttons are designed for kiosk tablets</li>
+          <div class="text-base font-semibold text-slate-800">Touchscreen tips</div>
+          <ul class="mt-2 text-base text-slate-700 list-disc pl-5 space-y-1">
+            <li>Use “Open Keypad” if you don’t have a scanner</li>
             <li>After success, the kiosk resets for the next person</li>
+            <li>“Already Clocked In” is shown in big yellow for safety</li>
           </ul>
         </div>
       </div>
     </div>
 
-    <div class="mt-8 text-xs text-slate-400">
+    <div class="mt-8 text-sm text-slate-400">
       <span class="opacity-80">Recommended:</span> USB 2D QR scanner in keyboard mode with Enter suffix.
     </div>
   </div>
@@ -229,17 +236,16 @@
       el.classList.remove("hidden");
       const base = "rounded-2xl border px-4 py-3";
 
-      // Make "already open" visually loud if passed as type "warn"
       if (type === "warn") {
-        el.className = `${base} bg-amber-50 text-amber-900 border-amber-300 pulse-soft`;
+        el.className = `${base} bg-amber-50 text-amber-900 border-amber-300 pulse-soft text-lg`;
         el.textContent = msg;
         window.scrollTo({ top: 0, behavior: "smooth" });
         return;
       }
 
-      if (type === "success") el.className = `${base} bg-emerald-50 text-emerald-900 border-emerald-200`;
-      if (type === "error")   el.className = `${base} bg-rose-50 text-rose-900 border-rose-200`;
-      if (type === "info")    el.className = `${base} bg-slate-50 text-slate-900 border-slate-200`;
+      if (type === "success") el.className = `${base} bg-emerald-50 text-emerald-900 border-emerald-200 text-lg`;
+      if (type === "error")   el.className = `${base} bg-rose-50 text-rose-900 border-rose-200 text-lg`;
+      if (type === "info")    el.className = `${base} bg-slate-50 text-slate-900 border-slate-200 text-lg`;
       el.textContent = msg;
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
@@ -301,9 +307,10 @@
       setAlreadyOpenUI(false);
       setButtonsEnabled();
       focusMemberInput(false);
+      showKeypad(false);
     }
 
-    // Keep kiosk focused unless user taps select/buttons
+    // Keep kiosk focused unless user taps select/buttons/input
     document.addEventListener("click", (e) => {
       const t = e.target;
       if (t && (t.tagName === "BUTTON" || t.tagName === "SELECT" || t.id === "memberInput")) return;
@@ -395,7 +402,6 @@
 
       const autoClockOut = $("autoClockOutToggle").checked;
 
-      // Try initial clock-in
       const data1 = await apiRecordClockIn(activityId);
 
       if (data1.status === "shift_started") {
@@ -413,26 +419,23 @@
       }
 
       if (data1.status === "already_open") {
-        // Make it VERY noticeable
         setAlreadyOpenUI(true, `Open shift started: ${data1.openSince || "earlier"}.`);
 
         if (!autoClockOut) {
           showBanner("warn", "Already clocked in somewhere. Tap Clock Out first, or enable Auto clock-out.");
-          scheduleAutoReset(6000);
+          scheduleAutoReset(6500);
           return;
         }
 
-        // Auto clock-out + re-clock-in
-        showBanner("warn", "Already clocked in — auto clocking out, then clocking you into the selected activity…");
+        showBanner("warn", "Already clocked in — auto clocking out, then clocking in to the selected activity…");
 
         const out = await apiSignOut();
         if (out.status !== "signed_out" && out.status !== "no_open_shift") {
           showBanner("error", `Auto clock-out failed: ${out.status}`);
-          scheduleAutoReset(7000);
+          scheduleAutoReset(8000);
           return;
         }
 
-        // Try clock in again
         const data2 = await apiRecordClockIn(activityId);
 
         if (data2.status === "shift_started") {
@@ -449,9 +452,8 @@
           return;
         }
 
-        // If it STILL says already open, something else is wrong
         showBanner("error", `Still showing already open after auto clock-out. Result: ${data2.status}`);
-        scheduleAutoReset(8000);
+        scheduleAutoReset(9000);
         return;
       }
 
@@ -544,14 +546,14 @@
     $("clockInBtn").addEventListener("click", async () => {
       clearBanner();
       try { await clockInFlow(); }
-      catch (e) { showBanner("error", e.message || String(e)); scheduleAutoReset(8000); }
+      catch (e) { showBanner("error", e.message || String(e)); scheduleAutoReset(9000); }
       finally { focusMemberInput(true); }
     });
 
     $("clockOutBtn").addEventListener("click", async () => {
       clearBanner();
       try { await clockOutFlow(); }
-      catch (e) { showBanner("error", e.message || String(e)); scheduleAutoReset(8000); }
+      catch (e) { showBanner("error", e.message || String(e)); scheduleAutoReset(9000); }
       finally { focusMemberInput(true); }
     });
 
@@ -561,11 +563,7 @@
       focusMemberInput(true);
     });
 
-    $("keypadToggleBtn").addEventListener("click", () => {
-      const isHidden = $("keypadWrap").classList.contains("hidden");
-      showKeypad(isHidden);
-    });
-
+    $("keypadToggleBtn").addEventListener("click", () => showKeypad(true));
     $("keypadCloseBtn").addEventListener("click", () => showKeypad(false));
     $("bkspBtn").addEventListener("click", backspace);
     $("clearBtn").addEventListener("click", clearInput);
