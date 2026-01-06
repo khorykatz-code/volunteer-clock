@@ -293,9 +293,13 @@
       const bar = $("progressBar");
 
       if (n === 1) {
-        subtitle.textContent = "Step 1 of 3 — Scan or enter member number";
-        bar.className = "h-2 w-1/3 bg-emerald-500";
-        focusMemberInput(false);
+  subtitle.textContent = "Step 1 of 3 — Scan or enter member number";
+  bar.className = "h-2 w-1/3 bg-emerald-500";
+
+  // ⏱ defer focus so DOM + Tailwind settle first
+  setTimeout(() => focusMemberInput(false), 50);
+}
+
       } else if (n === 2) {
         subtitle.textContent = "Step 2 of 3 — Choose activity and clock in/out";
         bar.className = "h-2 w-2/3 bg-emerald-500";
@@ -356,6 +360,9 @@
       setMemberUI();
       hideKeypad();
       showStep(1);
+      
+  // 🔁 guarantee scanner focus after auto-reset
+  setTimeout(() => focusMemberInput(false), 50);
     }
 
     function showResult({ kind, title, subtitle, details }) {
@@ -388,6 +395,11 @@
         resetAll();
       }, 4500);
     }
+// 🔒 Always force focus back to Member # input (scanner safety)
+document.addEventListener("click", () => {
+  const step1Visible = !$("step1").classList.contains("hidden");
+  if (step1Visible) focusMemberInput(false);
+});
 
     // ----------------------------
     // Keypad
