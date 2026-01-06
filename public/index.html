@@ -10,27 +10,33 @@
 
   <style>
     html, body { height: 100%; }
-    .glass { backdrop-filter: blur(10px); background: rgba(255,255,255,0.78); }
+    .glass { backdrop-filter: blur(10px); background: rgba(255,255,255,0.82); }
     .kiosk-shadow { box-shadow: 0 20px 60px rgba(0,0,0,0.35); }
+    .btn { -webkit-tap-highlight-color: transparent; }
+    .pulse-soft { animation: pulseSoft 1.2s ease-in-out infinite; }
+    @keyframes pulseSoft { 0%,100% { transform: scale(1); } 50% { transform: scale(1.02); } }
   </style>
 </head>
 
 <body class="min-h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 text-slate-100">
-  <div class="max-w-5xl mx-auto px-4 py-8">
+  <div class="max-w-6xl mx-auto px-4 py-8">
     <!-- Header -->
-    <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-8">
+    <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-6">
       <div>
         <h1 class="text-3xl md:text-4xl font-semibold tracking-tight">Volunteer Clock (Kiosk)</h1>
         <p class="text-slate-300 mt-1">
-          Scan your QR code with the handheld scanner (it types your Member #). Then choose an activity and clock in/out.
+          Scan with the handheld scanner (types Member # + Enter), or use the keypad. Then choose an activity and clock in/out.
         </p>
       </div>
 
       <div class="flex items-center gap-2">
-        <span class="text-xs px-3 py-1 rounded-full bg-slate-700/60 border border-slate-600/60">
-          Scanner-first
-        </span>
-        <button id="resetBtn" class="px-4 py-2 rounded-xl bg-slate-700/60 hover:bg-slate-700 border border-slate-600/60">
+        <button id="keypadToggleBtn"
+                class="btn px-4 py-2 rounded-xl bg-slate-700/60 hover:bg-slate-700 border border-slate-600/60">
+          Keypad
+        </button>
+
+        <button id="resetBtn"
+                class="btn px-4 py-2 rounded-xl bg-slate-700/60 hover:bg-slate-700 border border-slate-600/60">
           Reset
         </button>
       </div>
@@ -40,18 +46,20 @@
     <div id="banner" class="hidden mb-6 rounded-2xl border px-4 py-3"></div>
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <!-- Left: Scanner input -->
+      <!-- Left: Member input + keypad -->
       <div class="glass rounded-3xl border border-white/10 kiosk-shadow p-6 text-slate-900">
         <div class="flex items-start justify-between gap-4">
           <div>
-            <h2 class="text-xl font-semibold">Ready to Scan</h2>
+            <h2 class="text-xl font-semibold">Ready</h2>
             <p class="text-sm text-slate-600 mt-1">
-              Keep the cursor in the Member # box below. Most scanners will type the number and press Enter automatically.
+              Keep the cursor in the Member # box. Scanner will type it automatically. Touchscreen users can use the keypad.
             </p>
           </div>
+
           <div class="text-right">
-            <div class="text-xs text-slate-500">Status</div>
-            <div id="readyPill" class="inline-flex items-center gap-2 mt-1 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm">
+            <div class="text-xs text-slate-500">Kiosk</div>
+            <div id="readyPill"
+                 class="inline-flex items-center gap-2 mt-1 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm">
               <span class="inline-block w-2 h-2 rounded-full bg-emerald-500"></span>
               Ready
             </div>
@@ -65,19 +73,67 @@
               id="memberInput"
               inputmode="numeric"
               autocomplete="off"
-              class="flex-1 px-5 py-4 rounded-2xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-900 text-slate-900 text-2xl tracking-wider"
+              class="flex-1 px-5 py-4 rounded-2xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-900 text-slate-900 text-3xl tracking-wider"
               placeholder="Scan or type…"
             />
-            <button id="lookupBtn" class="px-5 py-4 rounded-2xl bg-slate-900 text-white hover:bg-slate-800 text-lg font-semibold">
+            <button id="lookupBtn"
+                    class="btn px-5 py-4 rounded-2xl bg-slate-900 text-white hover:bg-slate-800 text-lg font-semibold">
               Lookup
             </button>
           </div>
 
-          <div class="mt-3 text-xs text-slate-500">
-            Allowed: 1–4 digits. (Example: <span class="font-mono">823</span>)
+          <div class="mt-3 flex flex-wrap items-center gap-2">
+            <div class="text-xs text-slate-500">Allowed: 1–4 digits.</div>
+
+            <label class="ml-auto flex items-center gap-2 text-xs text-slate-700 select-none">
+              <input id="autoClockOutToggle" type="checkbox" checked class="w-4 h-4">
+              Auto clock-out if already clocked in
+            </label>
           </div>
 
-          <div class="mt-6 rounded-3xl border border-slate-200 bg-white p-5">
+          <!-- Keypad (optional) -->
+          <div id="keypadWrap" class="hidden mt-5">
+            <div class="rounded-3xl border border-slate-200 bg-white p-4">
+              <div class="flex items-center justify-between">
+                <div class="text-sm font-medium text-slate-800">On-screen keypad</div>
+                <button id="keypadCloseBtn" class="btn text-sm px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 border border-slate-200">
+                  Close
+                </button>
+              </div>
+
+              <div class="grid grid-cols-3 gap-3 mt-4">
+                <!-- digits -->
+                <button class="btn key px-0 py-5 rounded-2xl bg-slate-900 text-white text-2xl font-semibold" data-k="1">1</button>
+                <button class="btn key px-0 py-5 rounded-2xl bg-slate-900 text-white text-2xl font-semibold" data-k="2">2</button>
+                <button class="btn key px-0 py-5 rounded-2xl bg-slate-900 text-white text-2xl font-semibold" data-k="3">3</button>
+                <button class="btn key px-0 py-5 rounded-2xl bg-slate-900 text-white text-2xl font-semibold" data-k="4">4</button>
+                <button class="btn key px-0 py-5 rounded-2xl bg-slate-900 text-white text-2xl font-semibold" data-k="5">5</button>
+                <button class="btn key px-0 py-5 rounded-2xl bg-slate-900 text-white text-2xl font-semibold" data-k="6">6</button>
+                <button class="btn key px-0 py-5 rounded-2xl bg-slate-900 text-white text-2xl font-semibold" data-k="7">7</button>
+                <button class="btn key px-0 py-5 rounded-2xl bg-slate-900 text-white text-2xl font-semibold" data-k="8">8</button>
+                <button class="btn key px-0 py-5 rounded-2xl bg-slate-900 text-white text-2xl font-semibold" data-k="9">9</button>
+
+                <button id="bkspBtn" class="btn px-0 py-5 rounded-2xl bg-slate-200 text-slate-900 text-lg font-semibold border border-slate-300">
+                  ⌫
+                </button>
+                <button class="btn key px-0 py-5 rounded-2xl bg-slate-900 text-white text-2xl font-semibold" data-k="0">0</button>
+                <button id="clearBtn" class="btn px-0 py-5 rounded-2xl bg-slate-200 text-slate-900 text-lg font-semibold border border-slate-300">
+                  Clear
+                </button>
+
+                <button id="enterBtn" class="btn col-span-3 py-5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white text-2xl font-semibold">
+                  Enter / Lookup
+                </button>
+              </div>
+
+              <div class="mt-3 text-xs text-slate-500">
+                Tip: Tap “Enter / Lookup” after typing.
+              </div>
+            </div>
+          </div>
+
+          <!-- Member card -->
+          <div class="mt-5 rounded-3xl border border-slate-200 bg-white p-5">
             <div class="flex items-start justify-between gap-4">
               <div>
                 <div class="text-sm text-slate-500">Member</div>
@@ -89,10 +145,16 @@
                 <div id="memberNum" class="text-4xl font-semibold text-slate-900">—</div>
               </div>
             </div>
+
+            <!-- Notice pill for already-open -->
+            <div id="alreadyOpenPill" class="hidden mt-4 px-4 py-3 rounded-2xl border border-amber-300 bg-amber-50 text-amber-900 pulse-soft">
+              <div class="font-semibold text-lg">Already Clocked In</div>
+              <div id="alreadyOpenText" class="text-sm mt-1">This member has an open shift.</div>
+            </div>
           </div>
 
           <div class="mt-4 text-xs text-slate-600">
-            Tip: If scans aren’t showing up, click in the Member # box once and try again.
+            If scans aren’t showing up, tap the Member # field once and try again.
           </div>
         </div>
       </div>
@@ -105,7 +167,7 @@
           <label class="block text-sm font-medium text-slate-700 mb-2">Select activity</label>
           <select
             id="activitySelect"
-            class="w-full px-5 py-4 rounded-2xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-900 text-slate-900 text-xl bg-white"
+            class="w-full px-5 py-4 rounded-2xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-900 text-slate-900 text-2xl bg-white"
           >
             <option value="">Loading…</option>
           </select>
@@ -115,35 +177,35 @@
         <div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-3">
           <button
             id="clockInBtn"
-            class="py-5 rounded-3xl bg-emerald-600 hover:bg-emerald-500 text-white text-2xl font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
+            class="btn py-6 rounded-3xl bg-emerald-600 hover:bg-emerald-500 text-white text-3xl font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Clock In
           </button>
           <button
             id="clockOutBtn"
-            class="py-5 rounded-3xl bg-indigo-600 hover:bg-indigo-500 text-white text-2xl font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
+            class="btn py-6 rounded-3xl bg-indigo-600 hover:bg-indigo-500 text-white text-3xl font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Clock Out
           </button>
         </div>
 
-        <div class="mt-4 text-xs text-slate-600">
-          Clock Out closes the one open shift for this member (if any).
+        <div class="mt-4 text-sm text-slate-700">
+          <b>Auto clock-out</b> (toggle on the left) will close their open shift and clock them into the selected activity in one tap.
         </div>
 
         <div class="mt-6 rounded-2xl border border-slate-200 bg-white p-4">
-          <div class="text-sm font-medium text-slate-800">Kiosk behavior</div>
+          <div class="text-sm font-medium text-slate-800">Touchscreen tips</div>
           <ul class="mt-2 text-sm text-slate-700 list-disc pl-5 space-y-1">
-            <li>Auto-focus stays on Member # for rapid scanning</li>
-            <li>After success, the kiosk resets automatically</li>
-            <li>If a shift is already open, Clock In will show “already open”</li>
+            <li>Use “Keypad” if you don’t have a scanner</li>
+            <li>Big buttons are designed for kiosk tablets</li>
+            <li>After success, the kiosk resets for the next person</li>
           </ul>
         </div>
       </div>
     </div>
 
     <div class="mt-8 text-xs text-slate-400">
-      <span class="opacity-80">Recommended:</span> Use a USB 2D QR scanner in “keyboard mode” with Enter suffix.
+      <span class="opacity-80">Recommended:</span> USB 2D QR scanner in keyboard mode with Enter suffix.
     </div>
   </div>
 
@@ -152,9 +214,8 @@
     // State
     // ----------------------------
     const state = {
-      member: null,       // {id, number, name, phoneE164}
+      member: null,
       activities: [],
-      lastLookupAt: 0,
       resetTimer: null
     };
 
@@ -167,6 +228,15 @@
       const el = $("banner");
       el.classList.remove("hidden");
       const base = "rounded-2xl border px-4 py-3";
+
+      // Make "already open" visually loud if passed as type "warn"
+      if (type === "warn") {
+        el.className = `${base} bg-amber-50 text-amber-900 border-amber-300 pulse-soft`;
+        el.textContent = msg;
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        return;
+      }
+
       if (type === "success") el.className = `${base} bg-emerald-50 text-emerald-900 border-emerald-200`;
       if (type === "error")   el.className = `${base} bg-rose-50 text-rose-900 border-rose-200`;
       if (type === "info")    el.className = `${base} bg-slate-50 text-slate-900 border-slate-200`;
@@ -211,21 +281,32 @@
       }, ms);
     }
 
+    function setAlreadyOpenUI(isOpen, text = "") {
+      const pill = $("alreadyOpenPill");
+      if (!isOpen) {
+        pill.classList.add("hidden");
+        $("alreadyOpenText").textContent = "";
+        return;
+      }
+      pill.classList.remove("hidden");
+      $("alreadyOpenText").textContent = text || "This member has an open shift.";
+    }
+
     function resetKiosk({ keepBanner = true } = {}) {
       if (!keepBanner) clearBanner();
       $("memberInput").value = "";
       $("activitySelect").value = "";
       state.member = null;
       setMemberUI();
+      setAlreadyOpenUI(false);
       setButtonsEnabled();
       focusMemberInput(false);
     }
 
-    // Keep kiosk focused even if someone clicks elsewhere
+    // Keep kiosk focused unless user taps select/buttons
     document.addEventListener("click", (e) => {
-      const target = e.target;
-      // Don’t steal focus if they clicked into a select or button intentionally
-      if (target && (target.tagName === "BUTTON" || target.tagName === "SELECT" || target.id === "memberInput")) return;
+      const t = e.target;
+      if (t && (t.tagName === "BUTTON" || t.tagName === "SELECT" || t.id === "memberInput")) return;
       focusMemberInput(false);
     });
 
@@ -263,6 +344,7 @@
     }
 
     async function lookupMemberByNumber(memberNumber) {
+      setAlreadyOpenUI(false);
       const r = await fetch(`/api/member?number=${encodeURIComponent(memberNumber)}`);
       const data = await r.json();
       if (!r.ok) throw new Error(data?.error || "Member lookup failed");
@@ -276,11 +358,7 @@
       setButtonsEnabled();
     }
 
-    async function clockIn() {
-      const activityId = $("activitySelect").value;
-      if (!state.member?.id) return showBanner("error", "Scan/lookup a member first.");
-      if (!activityId) return showBanner("error", "Select an activity.");
-
+    async function apiRecordClockIn(activityId) {
       const body = {
         memberId: state.member.id,
         memberNumber: Number(state.member.number),
@@ -295,25 +373,10 @@
 
       const data = await r.json();
       if (!r.ok) throw new Error(data?.error || "Clock in failed");
-
-      if (data.status === "shift_started") {
-        showBanner("success", `Clocked in: ${data.activityName || "Activity"} ✅`);
-        scheduleAutoReset();
-      } else if (data.status === "already_open") {
-        showBanner("info", `Already clocked in. Open shift started: ${data.openSince || "earlier"}.`);
-        scheduleAutoReset(4500);
-      } else if (data.status === "attendance_recorded") {
-        showBanner("success", `Attendance recorded: ${data.activityName || "Activity"} ✅`);
-        scheduleAutoReset();
-      } else {
-        showBanner("info", `Result: ${data.status}`);
-        scheduleAutoReset(4500);
-      }
+      return data;
     }
 
-    async function clockOut() {
-      if (!state.member?.number) return showBanner("error", "Scan/lookup a member first.");
-
+    async function apiSignOut() {
       const r = await fetch("/api/signout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -322,11 +385,91 @@
 
       const data = await r.json();
       if (!r.ok) throw new Error(data?.error || "Clock out failed");
+      return data;
+    }
+
+    async function clockInFlow() {
+      const activityId = $("activitySelect").value;
+      if (!state.member?.id) return showBanner("error", "Scan/lookup a member first.");
+      if (!activityId) return showBanner("error", "Select an activity.");
+
+      const autoClockOut = $("autoClockOutToggle").checked;
+
+      // Try initial clock-in
+      const data1 = await apiRecordClockIn(activityId);
+
+      if (data1.status === "shift_started") {
+        setAlreadyOpenUI(false);
+        showBanner("success", `Clocked in: ${data1.activityName || "Activity"} ✅`);
+        scheduleAutoReset();
+        return;
+      }
+
+      if (data1.status === "attendance_recorded") {
+        setAlreadyOpenUI(false);
+        showBanner("success", `Attendance recorded: ${data1.activityName || "Activity"} ✅`);
+        scheduleAutoReset();
+        return;
+      }
+
+      if (data1.status === "already_open") {
+        // Make it VERY noticeable
+        setAlreadyOpenUI(true, `Open shift started: ${data1.openSince || "earlier"}.`);
+
+        if (!autoClockOut) {
+          showBanner("warn", "Already clocked in somewhere. Tap Clock Out first, or enable Auto clock-out.");
+          scheduleAutoReset(6000);
+          return;
+        }
+
+        // Auto clock-out + re-clock-in
+        showBanner("warn", "Already clocked in — auto clocking out, then clocking you into the selected activity…");
+
+        const out = await apiSignOut();
+        if (out.status !== "signed_out" && out.status !== "no_open_shift") {
+          showBanner("error", `Auto clock-out failed: ${out.status}`);
+          scheduleAutoReset(7000);
+          return;
+        }
+
+        // Try clock in again
+        const data2 = await apiRecordClockIn(activityId);
+
+        if (data2.status === "shift_started") {
+          setAlreadyOpenUI(false);
+          showBanner("success", `Auto clock-out complete. Now clocked in: ${data2.activityName || "Activity"} ✅`);
+          scheduleAutoReset();
+          return;
+        }
+
+        if (data2.status === "attendance_recorded") {
+          setAlreadyOpenUI(false);
+          showBanner("success", `Auto clock-out complete. Attendance recorded: ${data2.activityName || "Activity"} ✅`);
+          scheduleAutoReset();
+          return;
+        }
+
+        // If it STILL says already open, something else is wrong
+        showBanner("error", `Still showing already open after auto clock-out. Result: ${data2.status}`);
+        scheduleAutoReset(8000);
+        return;
+      }
+
+      showBanner("info", `Result: ${data1.status}`);
+      scheduleAutoReset(4500);
+    }
+
+    async function clockOutFlow() {
+      if (!state.member?.number) return showBanner("error", "Scan/lookup a member first.");
+
+      const data = await apiSignOut();
 
       if (data.status === "signed_out") {
+        setAlreadyOpenUI(false);
         showBanner("success", "Clocked out ✅");
         scheduleAutoReset();
       } else if (data.status === "no_open_shift") {
+        setAlreadyOpenUI(false);
         showBanner("info", "No open shift found for this member.");
         scheduleAutoReset(4500);
       } else {
@@ -336,10 +479,39 @@
     }
 
     // ----------------------------
+    // Keypad
+    // ----------------------------
+    function showKeypad(show) {
+      $("keypadWrap").classList.toggle("hidden", !show);
+      if (show) focusMemberInput(false);
+    }
+
+    function appendDigit(d) {
+      const inp = $("memberInput");
+      const cur = String(inp.value || "");
+      if (cur.length >= 4) return;
+      inp.value = cur + String(d);
+      focusMemberInput(false);
+    }
+
+    function backspace() {
+      const inp = $("memberInput");
+      inp.value = String(inp.value || "").slice(0, -1);
+      focusMemberInput(false);
+    }
+
+    function clearInput() {
+      $("memberInput").value = "";
+      focusMemberInput(false);
+    }
+
+    // ----------------------------
     // UI wiring
     // ----------------------------
     $("lookupBtn").addEventListener("click", async () => {
       clearBanner();
+      setAlreadyOpenUI(false);
+
       const memberNum = onlyDigits1to4($("memberInput").value);
       if (!memberNum) {
         showBanner("error", "Member number must be 1–4 digits.");
@@ -366,21 +538,20 @@
 
     $("activitySelect").addEventListener("change", () => {
       setButtonsEnabled();
-      // After selecting activity, return focus to scan field for the next person
       focusMemberInput(true);
     });
 
     $("clockInBtn").addEventListener("click", async () => {
       clearBanner();
-      try { await clockIn(); }
-      catch (e) { showBanner("error", e.message || String(e)); scheduleAutoReset(6000); }
+      try { await clockInFlow(); }
+      catch (e) { showBanner("error", e.message || String(e)); scheduleAutoReset(8000); }
       finally { focusMemberInput(true); }
     });
 
     $("clockOutBtn").addEventListener("click", async () => {
       clearBanner();
-      try { await clockOut(); }
-      catch (e) { showBanner("error", e.message || String(e)); scheduleAutoReset(6000); }
+      try { await clockOutFlow(); }
+      catch (e) { showBanner("error", e.message || String(e)); scheduleAutoReset(8000); }
       finally { focusMemberInput(true); }
     });
 
@@ -390,7 +561,20 @@
       focusMemberInput(true);
     });
 
-    // Re-focus if the tab regains focus
+    $("keypadToggleBtn").addEventListener("click", () => {
+      const isHidden = $("keypadWrap").classList.contains("hidden");
+      showKeypad(isHidden);
+    });
+
+    $("keypadCloseBtn").addEventListener("click", () => showKeypad(false));
+    $("bkspBtn").addEventListener("click", backspace);
+    $("clearBtn").addEventListener("click", clearInput);
+    $("enterBtn").addEventListener("click", () => $("lookupBtn").click());
+
+    document.querySelectorAll(".key").forEach(btn => {
+      btn.addEventListener("click", () => appendDigit(btn.dataset.k));
+    });
+
     window.addEventListener("focus", () => focusMemberInput(false));
 
     // ----------------------------
@@ -399,6 +583,7 @@
     (async function init() {
       setMemberUI();
       setButtonsEnabled();
+      setAlreadyOpenUI(false);
 
       try {
         await fetchActivities();
