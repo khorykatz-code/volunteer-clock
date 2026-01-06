@@ -13,6 +13,11 @@ module.exports = async (req, res) => {
     const nameField = "Full Name";
     const phoneField = "PHONE NUMBER";
 
+    // ✅ NEW: filter out former/deceased/etc by membership type
+    const membershipTypeField = "MEMBERSHIP TYPE";
+    const allowedTypes = new Set(["AM", "AME", "LM", "DW"]);
+    const norm = (v) => String(v ?? "").trim().toUpperCase();
+
     const url = new URL(`https://api.airtable.com/v0/${baseId}/${encodeURIComponent(table)}`);
     // MEMBER # appears to be a number field, so compare numerically (no quotes)
     url.searchParams.set("filterByFormula", `{${memberNumberField}}=${Number(raw)}`);
@@ -25,6 +30,15 @@ module.exports = async (req, res) => {
     const data = JSON.parse(text);
     const rec = data.records?.[0];
     if (!rec) return res.status(404).json({ error: "Member not found" });
+
+    // ✅ NEW: membership eligibility gate
+    const mtype = norm(rec.fields?.[membershipTypeField]);
+    if (!allowedTypes.has(mtype)) {
+      // Treat as "not found" to kiosk so they never show up
+      return res.status(404).json({ error: "Member not eligible for check-in" });
+      // Alternative if you prefer not to 404:
+      // return res.status(200).json({ member: null });
+    }
 
     const phoneRaw = rec.fields?.[phoneField] ?? null;
 
