@@ -1,0 +1,16 @@
+name: Daily Auto-Close (11:59pm ET)
+
+on:
+  schedule:
+    # GitHub schedules are UTC.
+    # 11:59 PM Eastern = 04:59 UTC during Standard Time (winter).
+    - cron: "59 4 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  autoclose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call auto-close endpoint
+        run: |
+          curl -fsS "${{ secrets.CRON_URL }}"
