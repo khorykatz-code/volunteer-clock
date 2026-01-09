@@ -1,3 +1,4 @@
+
 module.exports = async (req, res) => {
   try {
     const raw = String(req.query.number || "").trim();
