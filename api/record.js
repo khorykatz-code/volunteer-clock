@@ -28,43 +28,23 @@ async function airtableFetch(url, { method = "GET", token, body } = {}) {
 }
 
 function isUnknownFieldError(resp) {
-  // Airtable errors look like: {"error":{"type":"UNKNOWN_FIELD_NAME","message":"Unknown field name: \"EndTime\""}}
   return resp?.json?.error?.type === "UNKNOWN_FIELD_NAME";
 }
 
-// ✅ Robust minutes parser (handles number, "30", "30 minutes", [30], ["30"])
-function coerceMinutes(value) {
-  if (value == null) return null;
-
-  if (Array.isArray(value)) {
-    if (value.length === 0) return null;
-    return coerceMinutes(value[0]);
+function coerceMinutes(raw) {
+  if (raw == null) return null;
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  if (typeof raw === "string") {
+    const t = raw.trim();
+    if (!t) return null;
+    const n = Number(t);
+    return Number.isFinite(n) ? n : null;
   }
-
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? value : null;
-  }
-
-  if (typeof value === "string") {
-    const s = value.trim();
-    if (!s) return null;
-
-    const n1 = Number(s);
-    if (Number.isFinite(n1)) return n1;
-
-    const m = s.match(/(\d+(\.\d+)?)/);
-    if (m) {
-      const n2 = Number(m[1]);
-      if (Number.isFinite(n2)) return n2;
-    }
-    return null;
-  }
-
   return null;
 }
 
 module.exports = async (req, res) => {
-  // ---- CORS (so browser tools + your future web UI work) ----
+  // ---- CORS ----
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -77,6 +57,7 @@ module.exports = async (req, res) => {
     if (!memberId || !activityId) {
       return res.status(400).json({ error: "memberId and activityId are required" });
     }
+
     const memberNumStr = String(memberNumber ?? "").trim();
     if (!/^\d{1,4}$/.test(memberNumStr)) {
       return res.status(400).json({ error: "memberNumber is required (1–4 digits)" });
@@ -94,18 +75,18 @@ module.exports = async (req, res) => {
     const logsTable = "Work Hour Log 2 (2026+)";
 
     // Activity fields
-    const activityModeField = "Mode"; // Shift or Attendance
+    const activityModeField = "Mode";     // Shift or Attendance
     const activityNameField = "Name";
-    const activityAutoCloseMaxMinutesField = "AutoCloseMaxMinutes"; // ✅ YOUR REAL FIELD
+    const activityMaxMinutesField = "MaxMinutes"; // ✅ field you confirmed
 
-    // Logs fields (your names)
-    const logIdField = "LogID";                // writable now (you changed it to short text)
+    // Logs fields
+    const logIdField = "LogID";
     const logMemberLinkField = "MemberNumber"; // linked to MASTER MEMBERSHIP
     const logActivityLinkField = "WHActivity"; // linked to Activities
     const startField = "StartTime";
-    const memNumLookupField = "MemNum";        // lookup in Logs
+    const memNumLookupField = "MemNum"; // lookup in Logs
 
-    // End field name can vary; we’ll try a few common ones until Airtable accepts it
+    // End field candidates
     const endFieldCandidates = [
       "EndTime",
       "End Time",
@@ -121,7 +102,9 @@ module.exports = async (req, res) => {
     const tokenField = "ClockOutToken";
     const tokenExpiresField = "ClockOutTokenExpires";
 
-    // 1) Fetch activity to decide mode
+    const attendanceDedupeMinutes = 3;
+
+    // 1) Fetch activity to decide mode + max minutes
     const actUrl = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(activitiesTable)}/${activityId}`;
     const actResp = await airtableFetch(actUrl, { token });
     if (!actResp.ok) return res.status(actResp.status).json({ error: actResp.text });
@@ -156,72 +139,107 @@ module.exports = async (req, res) => {
           return { open, endFieldUsed: endField };
         }
 
-        // If Airtable says that endField doesn't exist, try the next candidate.
         if (isUnknownFieldError(r)) continue;
-
-        // Other errors: stop and report
         throw new Error(r.text);
       }
-      // If none matched, give a clear error
-      throw new Error(
-        `Could not find a valid end-time field. Tried: ${endFieldCandidates.join(", ")}`
-      );
+
+      throw new Error(`Could not find a valid end-time field. Tried: ${endFieldCandidates.join(", ")}`);
     }
 
-  // Helper: create attendance record (needs end field, so also uses candidates)
-async function createAttendanceLog(endIso) {
-  for (const endField of endFieldCandidates) {
-    const createUrl = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(logsTable)}`;
-    const payload = {
-      records: [{
-        fields: {
-          [logIdField]: `LOG-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`,
-          [logMemberLinkField]: [memberId],
-          [logActivityLinkField]: [activityId],
-          [startField]: nowIso,
-          [endField]: endIso
+    // Helper: server-side attendance dedupe — tries each end field candidate until it finds a valid one
+    async function findRecentAttendance(endIsoCandidateField) {
+      const sinceIso = new Date(Date.now() - attendanceDedupeMinutes * 60 * 1000).toISOString();
+
+      const findUrl = new URL(`https://api.airtable.com/v0/${baseId}/${encodeURIComponent(logsTable)}`);
+
+      // linked-record field contains activity record id in ARRAYJOIN output
+      const filter = `AND(
+        {${memNumLookupField}}=${memberNum},
+        FIND("${activityId}", ARRAYJOIN({${logActivityLinkField}})),
+        IS_AFTER({${endIsoCandidateField}}, "${sinceIso}")
+      )`;
+
+      findUrl.searchParams.set("filterByFormula", filter);
+      findUrl.searchParams.set("maxRecords", "1");
+
+      const r = await airtableFetch(findUrl.toString(), { token });
+      return r;
+    }
+
+    // Helper: create attendance record (needs end field, so also uses candidates)
+    async function createAttendanceLog(endIso, preferredEndField = null) {
+      const candidates = preferredEndField
+        ? [preferredEndField, ...endFieldCandidates.filter(x => x !== preferredEndField)]
+        : endFieldCandidates;
+
+      for (const endField of candidates) {
+        const createUrl = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(logsTable)}`;
+        const payload = {
+          records: [{
+            fields: {
+              [logIdField]: `LOG-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`,
+              [logMemberLinkField]: [memberId],
+              [logActivityLinkField]: [activityId],
+              [startField]: nowIso,
+              [endField]: endIso
+            }
+          }]
+        };
+
+        const r = await airtableFetch(createUrl, { method: "POST", token, body: payload });
+        if (r.ok) return { created: r.json, endFieldUsed: endField };
+        if (isUnknownFieldError(r)) continue;
+        throw new Error(r.text);
+      }
+
+      throw new Error(`Could not create attendance log; no valid end field found. Tried: ${endFieldCandidates.join(", ")}`);
+    }
+
+    // 2) Attendance: create closed log immediately with end = now + MaxMinutes
+    if (String(mode).trim() === "Attendance") {
+      const rawMax = activityFields?.[activityMaxMinutesField];
+      const maxMinutes = coerceMinutes(rawMax);
+
+      const endIso =
+        Number.isFinite(maxMinutes) && maxMinutes > 0
+          ? new Date(now.getTime() + maxMinutes * 60 * 1000).toISOString()
+          : nowIso;
+
+      // ✅ server-side dedupe: find any recent attendance for this member+activity
+      let preferredEndField = null;
+      for (const endField of endFieldCandidates) {
+        const r = await findRecentAttendance(endField);
+        if (r.ok) {
+          preferredEndField = endField;
+          const recent = r.json?.records?.[0] || null;
+          if (recent) {
+            return res.status(200).json({
+              status: "attendance_recent_duplicate",
+              activityName,
+              dedupeMinutes: attendanceDedupeMinutes,
+              recentLogRecordId: recent.id
+            });
+          }
+          break; // field exists and no recent dup found
         }
-      }]
-    };
+        if (isUnknownFieldError(r)) continue;
+        return res.status(500).json({ error: r.text });
+      }
 
-    const r = await airtableFetch(createUrl, { method: "POST", token, body: payload });
-    if (r.ok) {
-      return { created: r.json, endFieldUsed: endField };
+      const { created, endFieldUsed } = await createAttendanceLog(endIso, preferredEndField);
+
+      return res.status(200).json({
+        status: "attendance_recorded",
+        logRecordId: created?.records?.[0]?.id || null,
+        activityName,
+        endFieldUsed,
+
+        // debug-friendly info (optional)
+        maxMinutes: maxMinutes ?? null,
+        maxMinutesRaw: rawMax ?? null,
+        attendanceEndIso: endIso
+      });
     }
-    if (isUnknownFieldError(r)) continue;
-    throw new Error(r.text);
-  }
-
-  throw new Error(
-    `Could not create attendance log; no valid end field found. Tried: ${endFieldCandidates.join(", ")}`
-  );
-}
-
-// 2) Attendance: create closed log immediately with end = now + MaxMinutes
-if (String(mode).trim() === "Attendance") {
-  const rawMax = activityFields?.["MaxMinutes"];   // ✅ changed
-  const maxMinutes = coerceMinutes(rawMax);
-
-  const endIso =
-    Number.isFinite(maxMinutes) && maxMinutes > 0
-      ? new Date(now.getTime() + maxMinutes * 60 * 1000).toISOString()
-      : nowIso;
-
-  const { created, endFieldUsed } = await createAttendanceLog(endIso);
-
-  return res.status(200).json({
-    status: "attendance_recorded",
-    logRecordId: created?.records?.[0]?.id || null,
-    activityName,
-    endFieldUsed,
-
-    // helpful for debugging:
-    maxMinutes: maxMinutes ?? null,
-    maxMinutesRaw: rawMax ?? null,
-    attendanceEndIso: endIso
-  });
-}
-
 
     // 3) Shift: enforce one open shift per member
     if (String(mode).trim() === "Shift") {
