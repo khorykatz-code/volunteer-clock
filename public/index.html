@@ -133,7 +133,6 @@
 
             <div id="keypadArea" class="mt-4 flex-1 hidden">
               <div class="grid grid-cols-3 gap-3 h-full content-start">
-                <!-- Make buttons big but still fit -->
                 <button class="btn key py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="1">1</button>
                 <button class="btn key py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="2">2</button>
                 <button class="btn key py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="3">3</button>
@@ -321,6 +320,29 @@
       if (select) inp.select();
     }
 
+    // ----------------------------
+    // Attendance dedupe + activity helpers
+    // ----------------------------
+    const ATTENDANCE_DEDUP_MS = 3 * 60 * 1000; // 3 minutes
+
+    function getActivityById(id) {
+      return state.activities.find(a => a.id === id) || null;
+    }
+
+    function attendanceKey(memberNumber, activityId) {
+      return `attendance:last:${memberNumber}:${activityId}`;
+    }
+
+    function getLastAttendanceAt(memberNumber, activityId) {
+      const raw = localStorage.getItem(attendanceKey(memberNumber, activityId));
+      const t = Number(raw);
+      return Number.isFinite(t) ? t : null;
+    }
+
+    function setLastAttendanceNow(memberNumber, activityId) {
+      localStorage.setItem(attendanceKey(memberNumber, activityId), String(Date.now()));
+    }
+
     function setMemberUI() {
       const m = state.member;
       $("memberName").textContent = m?.name || "—";
@@ -400,7 +422,6 @@
       state.keypadVisible = true;
       $("keypadArea").classList.remove("hidden");
       $("keypadHint").classList.add("hidden");
-      // keep focus on input for scanner safety even when keypad is open
       setTimeout(() => focusMemberInput(false), 0);
     }
     function hideKeypad() {
@@ -449,6 +470,12 @@
         opt.textContent = `${a.name} (${a.mode || "—"})`;
         select.appendChild(opt);
       }
+
+      // ✅ Auto-select if there is only ONE active activity
+      if (state.activities.length === 1) {
+        select.value = state.activities[0].id;
+        setButtonsEnabled();
+      }
     }
 
     async function lookupMemberByNumber(memberNumber) {
@@ -467,7 +494,7 @@
         body: JSON.stringify(body)
       });
       const data = await r.json();
-      if (!r.ok) throw new Error(data?.detail || data?.error || "Clock in failed");
+      if (!r.ok) throw new Error(data?.error || "Clock in failed");
       return data;
     }
 
@@ -478,7 +505,7 @@
         body: JSON.stringify({ memberNumber: Number(state.member.number) })
       });
       const data = await r.json();
-      if (!r.ok) throw new Error(data?.error || data?.error || "Clock out failed");
+      if (!r.ok) throw new Error(data?.error || "Clock out failed");
       return data;
     }
 
@@ -495,7 +522,7 @@
       try {
         await lookupMemberByNumber(memberNum);
         showResult({ kind: "success", title: "Member Loaded", subtitle: `${state.member.name}`, details: `Member #${state.member.number}. Tap Home or Back to continue.` });
-        // After showing a quick result, jump to Step 2 automatically
+
         if (state.autoReturnTimer) clearTimeout(state.autoReturnTimer);
         state.autoReturnTimer = setTimeout(() => {
           showStep(2);
@@ -523,6 +550,23 @@
 
       const autoClockOut = $("autoClockOutToggle").checked;
 
+      // ✅ Attendance double-scan protection (client-side)
+      const act = getActivityById(activityId);
+      const actMode = String(act?.mode || "").toLowerCase();
+      if (actMode === "attendance") {
+        const lastAt = getLastAttendanceAt(state.member.number, activityId);
+        if (lastAt && (Date.now() - lastAt) < ATTENDANCE_DEDUP_MS) {
+          const secs = Math.ceil((ATTENDANCE_DEDUP_MS - (Date.now() - lastAt)) / 1000);
+          showResult({
+            kind: "warn",
+            title: "Already Recorded ⚠️",
+            subtitle: "Please wait before scanning again",
+            details: `Attendance for ${act?.name || "this activity"} was just recorded. Try again in ~${secs}s.`
+          });
+          return;
+        }
+      }
+
       try {
         const data1 = await apiRecordClockIn(activityId);
 
@@ -532,6 +576,9 @@
         }
 
         if (data1.status === "attendance_recorded") {
+          // ✅ mark for dedupe window
+          setLastAttendanceNow(state.member.number, activityId);
+
           showResult({ kind: "success", title: "Attendance Recorded ✅", subtitle: data1.activityName || "Activity", details: `Member #${state.member.number} — ${state.member.name}` });
           return;
         }
@@ -547,7 +594,6 @@
             return;
           }
 
-          // Auto clock-out then try again
           const out = await apiSignOut();
           if (out.status !== "signed_out" && out.status !== "no_open_shift") {
             showResult({ kind: "error", title: "Auto Clock-Out Failed", subtitle: "Please see Khory", details: `Result: ${out.status}` });
@@ -560,6 +606,9 @@
             return;
           }
           if (data2.status === "attendance_recorded") {
+            // ✅ mark for dedupe window even on switch
+            setLastAttendanceNow(state.member.number, activityId);
+
             showResult({ kind: "success", title: "Attendance Recorded ✅", subtitle: data2.activityName || "Activity", details: "Auto clock-out complete." });
             return;
           }
@@ -631,13 +680,9 @@
     window.addEventListener("focus", () => focusMemberInput(false));
 
     // ✅ Scanner-safety: if Step 1 is visible, refocus Member # after ANY tap/click
-    // Use capture + setTimeout so we don't interfere with button clicks.
     function enforceMemberFocusIfStep1Visible() {
       const step1Visible = !$("step1").classList.contains("hidden");
       if (!step1Visible) return;
-
-      // If the click was on the activity select (Step 2) or something else, ignore.
-      // Since Step 1 is visible, safe to enforce.
       setTimeout(() => focusMemberInput(false), 0);
     }
     document.addEventListener("click", enforceMemberFocusIfStep1Visible, true);
@@ -654,13 +699,12 @@
 
       try {
         await fetchActivities();
-        $("activitySelect").value = "";
+        $("activitySelect").value = $("activitySelect").value || "";
+        setButtonsEnabled();
       } catch (e) {
-        // Keep UI usable even if activities fail
         $("activitySelect").innerHTML = `<option value="">Failed to load activities</option>`;
       }
 
-      // ✅ scanner-safety: initial focus
       setTimeout(() => focusMemberInput(false), 50);
     })();
   </script>
