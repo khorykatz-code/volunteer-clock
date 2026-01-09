@@ -1,881 +1,290 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Volunteer Clock Kiosk</title>
+const { randomBytes, randomUUID } = require("crypto");
 
-  <script src="https://cdn.tailwindcss.com"></script>
+function addDaysIso(days) {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString();
+}
 
-  <style>
-    html, body { height: 100%; }
-    body { overflow: hidden; }
-    .btn { -webkit-tap-highlight-color: transparent; }
-    .pulse-soft { animation: pulseSoft 1.2s ease-in-out infinite; }
-    @keyframes pulseSoft { 0%,100% { transform: scale(1); } 50% { transform: scale(1.02); } }
-  </style>
-</head>
+function randomTokenHex(bytes = 16) {
+  return randomBytes(bytes).toString("hex");
+}
 
-<body class="bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 text-slate-100">
-  <div class="h-[100svh] w-full flex flex-col">
-    <header class="px-5 py-4 flex items-center justify-between">
-      <div>
-        <div class="text-2xl font-semibold tracking-tight">Volunteer Clock</div>
-        <div id="subtitle" class="text-slate-300 text-sm mt-0.5">Step 1 of 3 — Scan member # or type a name</div>
-      </div>
-      <div class="flex items-center gap-2">
-        <button id="homeBtn" class="btn px-4 py-3 rounded-2xl bg-slate-700/60 hover:bg-slate-700 border border-slate-600/60 text-base">Home</button>
-        <button id="resetBtn" class="btn px-4 py-3 rounded-2xl bg-slate-700/60 hover:bg-slate-700 border border-slate-600/60 text-base">Reset</button>
-      </div>
-    </header>
+async function airtableFetch(url, { method = "GET", token, body } = {}) {
+  const r = await fetch(url, {
+    method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(body ? { "Content-Type": "application/json" } : {})
+    },
+    body: body ? JSON.stringify(body) : undefined
+  });
 
-    <div class="px-5 pb-3">
-      <div class="h-2 w-full rounded-full bg-slate-700/50 overflow-hidden">
-        <div id="progressBar" class="h-2 w-1/3 bg-emerald-500"></div>
-      </div>
-    </div>
+  const text = await r.text();
+  let json = null;
+  try { json = JSON.parse(text); } catch { /* ignore */ }
 
-    <main class="flex-1 px-5 pb-5">
-      <!-- STEP 1 -->
-      <section id="step1" class="h-full">
-        <div class="h-full grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div class="h-full rounded-3xl bg-white/90 text-slate-900 border border-white/10 shadow-xl p-5 flex flex-col">
-            <div class="flex items-start justify-between gap-3">
-              <div>
-                <div class="text-lg font-semibold">Lookup</div>
-                <div class="text-sm text-slate-600">Scan member # (digits) or type a name.</div>
-              </div>
-              <div class="px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm">Ready</div>
-            </div>
+  return { ok: r.ok, status: r.status, text, json };
+}
 
-            <div class="mt-4">
-              <label class="block text-sm font-medium text-slate-700 mb-2">Member # or Name</label>
+function isUnknownFieldError(resp) {
+  return resp?.json?.error?.type === "UNKNOWN_FIELD_NAME";
+}
 
-              <div class="flex gap-2">
-                <input id="unifiedInput" autocomplete="off" inputmode="text"
-                       class="flex-1 px-5 py-4 rounded-2xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-900 text-slate-900 text-2xl"
-                       placeholder="Scan #123 or type 'John'…" />
-                <button id="goBtn"
-                        class="btn px-6 py-4 rounded-2xl bg-slate-900 text-white hover:bg-slate-800 text-xl font-semibold">
-                  Go
-                </button>
-              </div>
+function coerceMinutes(raw) {
+  if (raw == null) return null;
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  if (typeof raw === "string") {
+    const t = raw.trim();
+    if (!t) return null;
+    const n = Number(t);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
 
-              <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-                <button id="openKeypadBtn"
-                        class="btn w-full px-6 py-5 rounded-3xl bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-900 text-2xl font-semibold">
-                  Open Keypad
-                </button>
+module.exports = async (req, res) => {
+  // ---- CORS ----
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") return res.status(200).end();
+  if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
 
-                <button id="openKeyboardBtn"
-                        class="btn w-full px-6 py-5 rounded-3xl bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-900 text-2xl font-semibold">
-                  Keyboard
-                </button>
-              </div>
+  try {
+    const { memberId, memberNumber, activityId } = req.body || {};
 
-              <div class="mt-3">
-                <div id="nameResults" class="grid grid-cols-1 gap-2"></div>
-                <div id="nameHint" class="mt-2 text-sm text-slate-600">
-                  If you type letters, it auto-searches and shows up to <b>4</b> matches.
-                </div>
-              </div>
-
-              <div class="mt-3">
-                <label class="w-full flex items-center justify-between gap-3 px-6 py-5 rounded-3xl bg-white border border-slate-200 text-slate-900 select-none">
-                  <div>
-                    <div class="text-base font-semibold leading-tight">Auto clock-out</div>
-                    <div class="text-sm text-slate-600 leading-tight">If already clocked in, clock out then clock in.</div>
-                  </div>
-                  <input id="autoClockOutToggle" type="checkbox" checked class="w-6 h-6">
-                </label>
-              </div>
-
-              <div class="mt-2 text-sm text-slate-600">
-                Member # must be <b>1–4 digits</b>.
-              </div>
-            </div>
-
-            <div class="mt-4 rounded-3xl border border-slate-200 bg-white p-5">
-              <div class="flex items-start justify-between gap-4">
-                <div>
-                  <div class="text-sm text-slate-500">Member</div>
-                  <div id="memberName" class="text-2xl font-semibold text-slate-900">—</div>
-                  <div id="memberMeta" class="text-sm text-slate-600 mt-1">Not loaded</div>
-                </div>
-                <div class="text-right">
-                  <div class="text-sm text-slate-500">Member #</div>
-                  <div id="memberNum" class="text-5xl font-semibold text-slate-900">—</div>
-                </div>
-              </div>
-            </div>
-
-            <div class="mt-auto pt-4">
-              <button id="toStep2Btn"
-                      class="btn w-full py-5 rounded-3xl bg-emerald-600 hover:bg-emerald-500 text-white text-3xl font-semibold disabled:opacity-40 disabled:cursor-not-allowed">
-                Continue
-              </button>
-              <div class="mt-2 text-sm text-slate-600">Continue is enabled after a successful lookup.</div>
-            </div>
-          </div>
-
-          <!-- Right panel: Keypad / Keyboard -->
-          <div class="h-full rounded-3xl bg-white/90 text-slate-900 border border-white/10 shadow-xl p-5 flex flex-col">
-            <div class="flex items-center justify-between">
-              <div>
-                <div class="text-lg font-semibold">Input Tools</div>
-                <div class="text-sm text-slate-600">Touchscreen entry (optional)</div>
-              </div>
-              <button id="hideToolsBtn"
-                      class="btn px-4 py-3 rounded-2xl bg-slate-100 hover:bg-slate-200 border border-slate-200 text-base">
-                Hide
-              </button>
-            </div>
-
-            <!-- DIGIT KEYPAD -->
-            <div id="keypadArea" class="mt-4 flex-1 hidden">
-              <div class="text-sm text-slate-600 mb-3">Numeric keypad (member #)</div>
-              <div class="grid grid-cols-3 gap-3">
-                <button class="btn keyD py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="1">1</button>
-                <button class="btn keyD py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="2">2</button>
-                <button class="btn keyD py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="3">3</button>
-                <button class="btn keyD py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="4">4</button>
-                <button class="btn keyD py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="5">5</button>
-                <button class="btn keyD py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="6">6</button>
-                <button class="btn keyD py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="7">7</button>
-                <button class="btn keyD py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="8">8</button>
-                <button class="btn keyD py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="9">9</button>
-                <button id="bkspBtn" class="btn py-6 rounded-2xl bg-slate-200 text-slate-900 text-2xl font-semibold border border-slate-300">⌫</button>
-                <button class="btn keyD py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="0">0</button>
-                <button id="clearBtn" class="btn py-6 rounded-2xl bg-slate-200 text-slate-900 text-2xl font-semibold border border-slate-300">Clear</button>
-                <button id="enterBtn" class="btn col-span-3 py-6 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white text-3xl font-semibold">
-                  Enter / Go
-                </button>
-              </div>
-            </div>
-
-            <!-- ON-SCREEN KEYBOARD -->
-            <div id="keyboardArea" class="mt-4 flex-1 hidden">
-              <div class="text-sm text-slate-600 mb-3">Keyboard (name search)</div>
-
-              <div class="grid grid-cols-10 gap-2">
-                <!-- Row 1 -->
-                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="Q">Q</button>
-                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="W">W</button>
-                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="E">E</button>
-                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="R">R</button>
-                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="T">T</button>
-                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="Y">Y</button>
-                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="U">U</button>
-                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="I">I</button>
-                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="O">O</button>
-                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="P">P</button>
-
-                <!-- Row 2 -->
-                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="A">A</button>
-                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="S">S</button>
-                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="D">D</button>
-                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="F">F</button>
-                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="G">G</button>
-                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="H">H</button>
-                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="J">J</button>
-                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="K">K</button>
-                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="L">L</button>
-                <button id="kbdBkspBtn" class="btn py-4 rounded-2xl bg-slate-200 text-slate-900 text-lg font-semibold border border-slate-300">⌫</button>
-
-                <!-- Row 3 -->
-                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="Z">Z</button>
-                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="X">X</button>
-                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="C">C</button>
-                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="V">V</button>
-                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="B">B</button>
-                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="N">N</button>
-                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="M">M</button>
-                <button id="kbdSpaceBtn" class="btn col-span-2 py-4 rounded-2xl bg-slate-200 text-slate-900 text-lg font-semibold border border-slate-300">Space</button>
-                <button id="kbdClearBtn" class="btn py-4 rounded-2xl bg-slate-200 text-slate-900 text-lg font-semibold border border-slate-300">Clear</button>
-              </div>
-            </div>
-
-            <div id="toolsHint" class="mt-4 text-slate-700 text-base">
-              Tap <b>Open Keypad</b> for member # or <b>Keyboard</b> for name search.
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- STEP 2 -->
-      <section id="step2" class="h-full hidden">
-        <div class="h-full grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div class="h-full rounded-3xl bg-white/90 text-slate-900 border border-white/10 shadow-xl p-5 flex flex-col">
-            <div class="flex items-start justify-between gap-4">
-              <div>
-                <div class="text-lg font-semibold">Confirm Member</div>
-                <div class="text-sm text-slate-600">If this isn’t you, go back.</div>
-              </div>
-              <button id="backToStep1Btn"
-                      class="btn px-5 py-3 rounded-2xl bg-slate-100 hover:bg-slate-200 border border-slate-200 text-base">
-                Back
-              </button>
-            </div>
-
-            <div class="mt-4 rounded-3xl border border-slate-200 bg-white p-5">
-              <div class="flex items-start justify-between gap-4">
-                <div>
-                  <div class="text-sm text-slate-500">Member</div>
-                  <div id="memberName2" class="text-3xl font-semibold text-slate-900">—</div>
-                  <div id="memberMeta2" class="text-base text-slate-600 mt-1">—</div>
-                </div>
-                <div class="text-right">
-                  <div class="text-sm text-slate-500">Member #</div>
-                  <div id="memberNum2" class="text-6xl font-semibold text-slate-900">—</div>
-                </div>
-              </div>
-            </div>
-
-            <div class="mt-4">
-              <label class="block text-sm font-medium text-slate-700 mb-2">Select activity</label>
-              <select id="activitySelect"
-                      class="w-full px-5 py-5 rounded-2xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-900 text-slate-900 text-2xl bg-white">
-                <option value="">Loading…</option>
-              </select>
-              <div class="mt-2 text-sm text-slate-600">Only Active activities are shown.</div>
-            </div>
-
-            <div class="mt-auto pt-5">
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <button id="clockInBtn"
-                        class="btn py-7 rounded-3xl bg-emerald-600 hover:bg-emerald-500 text-white text-4xl font-semibold disabled:opacity-40 disabled:cursor-not-allowed">
-                  Clock In
-                </button>
-                <button id="clockOutBtn"
-                        class="btn py-7 rounded-3xl bg-indigo-600 hover:bg-indigo-500 text-white text-4xl font-semibold disabled:opacity-40 disabled:cursor-not-allowed">
-                  Clock Out
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div class="h-full rounded-3xl bg-white/90 text-slate-900 border border-white/10 shadow-xl p-5 flex flex-col">
-            <div class="text-lg font-semibold">Instructions</div>
-            <div class="mt-2 text-base text-slate-700 leading-snug">
-              <ul class="list-disc pl-5 space-y-2">
-                <li>Choose the correct activity.</li>
-                <li><b>Clock In</b> starts a shift for work-hour activities.</li>
-                <li><b>Clock Out</b> closes your current open shift (if any).</li>
-                <li>If you’re already clocked in somewhere, you’ll see a big warning.</li>
-              </ul>
-            </div>
-
-            <div class="mt-auto pt-5">
-              <div class="rounded-3xl border border-slate-200 bg-white p-4">
-                <div class="text-sm text-slate-500">Auto clock-out</div>
-                <div id="autoClockOutStatus" class="text-2xl font-semibold text-slate-900 mt-1">On</div>
-                <div class="text-sm text-slate-600 mt-1">If already clocked in, the kiosk will clock you out first, then clock you in.</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- STEP 3 -->
-      <section id="step3" class="h-full hidden">
-        <div id="resultCard"
-             class="h-full rounded-3xl border border-white/10 shadow-xl p-6 flex flex-col items-center justify-center text-center bg-white/90 text-slate-900">
-          <div id="resultTitle" class="text-5xl md:text-6xl font-extrabold tracking-tight">Done</div>
-          <div id="resultSubtitle" class="mt-4 text-2xl md:text-3xl text-slate-700">—</div>
-          <div id="resultDetails" class="mt-6 text-lg md:text-xl text-slate-600 max-w-3xl">—</div>
-
-          <div class="mt-10 flex gap-3">
-            <button id="resultHomeBtn" class="btn px-8 py-5 rounded-3xl bg-slate-900 text-white hover:bg-slate-800 text-2xl font-semibold">Home</button>
-            <button id="resultBackBtn" class="btn px-8 py-5 rounded-3xl bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-900 text-2xl font-semibold">Back</button>
-          </div>
-
-          <div id="autoReturnText" class="mt-6 text-base text-slate-500">Returning to Home automatically…</div>
-        </div>
-      </section>
-    </main>
-  </div>
-
-  <script>
-    const state = {
-      member: null,
-      activities: [],
-      autoReturnTimer: null,
-      nameSearchTimer: null,
-      nameSearchSeq: 0,
-      toolsVisible: false,
-      keypadVisible: false,
-      keyboardVisible: false,
-    };
-
-    const $ = (id) => document.getElementById(id);
-
-    // ----------------------------
-    // Step navigation
-    // ----------------------------
-    function showStep(n) {
-      const steps = [$("step1"), $("step2"), $("step3")];
-      steps.forEach((el, i) => el.classList.toggle("hidden", i !== (n - 1)));
-
-      const subtitle = $("subtitle");
-      const bar = $("progressBar");
-
-      if (n === 1) {
-        subtitle.textContent = "Step 1 of 3 — Scan member # or type a name";
-        bar.className = "h-2 w-1/3 bg-emerald-500";
-        setTimeout(() => focusUnified(false), 50);
-      } else if (n === 2) {
-        subtitle.textContent = "Step 2 of 3 — Choose activity and clock in/out";
-        bar.className = "h-2 w-2/3 bg-emerald-500";
-      } else {
-        subtitle.textContent = "Step 3 of 3 — Result";
-        bar.className = "h-2 w-full bg-emerald-500";
-      }
+    if (!memberId || !activityId) {
+      return res.status(400).json({ error: "memberId and activityId are required" });
     }
 
-    // ----------------------------
-    // Helpers
-    // ----------------------------
-    function focusUnified(select = true) {
-      const inp = $("unifiedInput");
-      if (!inp) return;
-      inp.focus();
-      if (select) inp.select();
+    const memberNumStr = String(memberNumber ?? "").trim();
+    if (!/^\d{1,4}$/.test(memberNumStr)) {
+      return res.status(400).json({ error: "memberNumber is required (1–4 digits)" });
+    }
+    const memberNum = Number(memberNumStr);
+
+    const baseId = process.env.AIRTABLE_BASE_ID;
+    const token = process.env.AIRTABLE_PAT;
+    if (!baseId || !token) {
+      return res.status(500).json({ error: "Missing AIRTABLE_BASE_ID or AIRTABLE_PAT" });
     }
 
-    function parseMemberDigits(v) {
-      const t = String(v || "").trim();
-      return /^\d{1,4}$/.test(t) ? t : null;
-    }
+    // Tables
+    const activitiesTable = "Work Hour Events and Categories";
+    const logsTable = "Work Hour Log 2 (2026+)";
 
-    function escapeHtml(s) {
-      return String(s ?? "").replace(/[&<>"']/g, (c) => ({
-        "&": "&amp;",
-        "<": "&lt;",
-        ">": "&gt;",
-        '"': "&quot;",
-        "'": "&#39;"
-      }[c]));
-    }
+    // Activity fields
+    const activityModeField = "Mode";     // Shift or Attendance
+    const activityNameField = "Name";
+    const activityMaxMinutesField = "MaxMinutes"; // ✅ field you confirmed
 
-    // ----------------------------
-    // Attendance dedupe + activity helpers
-    // ----------------------------
-    const ATTENDANCE_DEDUP_MS = 3 * 60 * 1000;
+    // Logs fields
+    const logIdField = "LogID";
+    const logMemberLinkField = "MemberNumber"; // linked to MASTER MEMBERSHIP
+    const logActivityLinkField = "WHActivity"; // linked to Activities
+    const startField = "StartTime";
+    const memNumLookupField = "MemNum"; // lookup in Logs
 
-    function getActivityById(id) {
-      return state.activities.find(a => a.id === id) || null;
-    }
+    // End field candidates
+    const endFieldCandidates = [
+      "EndTime",
+      "End Time",
+      "End",
+      "Clock Out",
+      "ClockOut",
+      "Checked Out",
+      "CheckedOut"
+    ];
 
-    function attendanceKey(memberNumber, activityId) {
-      return `attendance:last:${memberNumber}:${activityId}`;
-    }
+    // Token fields
+    const reminderSentField = "ReminderSentAt";
+    const tokenField = "ClockOutToken";
+    const tokenExpiresField = "ClockOutTokenExpires";
 
-    function getLastAttendanceAt(memberNumber, activityId) {
-      const raw = localStorage.getItem(attendanceKey(memberNumber, activityId));
-      const t = Number(raw);
-      return Number.isFinite(t) ? t : null;
-    }
+    const attendanceDedupeMinutes = 3;
 
-    function setLastAttendanceNow(memberNumber, activityId) {
-      localStorage.setItem(attendanceKey(memberNumber, activityId), String(Date.now()));
-    }
+    // 1) Fetch activity to decide mode + max minutes
+    const actUrl = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(activitiesTable)}/${activityId}`;
+    const actResp = await airtableFetch(actUrl, { token });
+    if (!actResp.ok) return res.status(actResp.status).json({ error: actResp.text });
 
-    function getOnlyAttendanceActivityIdIfSingle() {
-      if (!Array.isArray(state.activities) || state.activities.length !== 1) return null;
-      const a = state.activities[0];
-      const mode = String(a?.mode || "").toLowerCase();
-      return mode === "attendance" ? a.id : null;
-    }
+    const activity = actResp.json;
+    const activityFields = activity?.fields || {};
+    const mode = activityFields?.[activityModeField] ?? null;
+    const activityName = activityFields?.[activityNameField] ?? null;
 
-    // ----------------------------
-    // UI setters
-    // ----------------------------
-    function setMemberUI() {
-      const m = state.member;
-
-      $("memberName").textContent = m?.name || "—";
-      $("memberMeta").textContent = m?.phoneE164 ? `Phone: ${m.phoneE164}` : (m ? "Phone: —" : "Not loaded");
-      $("memberNum").textContent = m?.number ?? "—";
-
-      $("memberName2").textContent = m?.name || "—";
-      $("memberMeta2").textContent = m?.phoneE164 ? `Phone: ${m.phoneE164}` : "Phone: —";
-      $("memberNum2").textContent = m?.number ?? "—";
-
-      $("toStep2Btn").disabled = !m?.id;
-      setButtonsEnabled();
-      $("autoClockOutStatus").textContent = $("autoClockOutToggle").checked ? "On" : "Off";
-    }
-
-    function setButtonsEnabled() {
-      const hasMember = !!state.member?.id;
-      const activityId = $("activitySelect").value;
-      $("clockInBtn").disabled = !(hasMember && activityId);
-      $("clockOutBtn").disabled = !(hasMember);
-    }
-
-    function showResult({ kind, title, subtitle, details }) {
-      const card = $("resultCard");
-      $("resultTitle").textContent = title || "Result";
-      $("resultSubtitle").textContent = subtitle || "—";
-      $("resultDetails").textContent = details || "";
-
-      card.className = "h-full rounded-3xl border border-white/10 shadow-xl p-6 flex flex-col items-center justify-center text-center bg-white/90 text-slate-900";
-      if (kind === "success") card.className += " ring-8 ring-emerald-300";
-      else if (kind === "warn") card.className += " ring-8 ring-amber-300 pulse-soft";
-      else if (kind === "error") card.className += " ring-8 ring-rose-300";
-
-      showStep(3);
-
-      $("autoReturnText").textContent = "Returning to Home automatically…";
-      if (state.autoReturnTimer) clearTimeout(state.autoReturnTimer);
-      state.autoReturnTimer = setTimeout(() => resetAll(), 4500);
-    }
-
-    function resetAll() {
-      if (state.autoReturnTimer) clearTimeout(state.autoReturnTimer);
-      if (state.nameSearchTimer) clearTimeout(state.nameSearchTimer);
-
-      state.member = null;
-      $("unifiedInput").value = "";
-      $("activitySelect").value = "";
-      clearNameResults();
-      hideTools();
-      setMemberUI();
-      showStep(1);
-      setTimeout(() => focusUnified(false), 50);
-    }
-
-    // ----------------------------
-    // Name results (from unified input)
-    // ----------------------------
-    function clearNameResults() {
-      const box = $("nameResults");
-      if (box) box.innerHTML = "";
-    }
-
-    function setNameStatus(msg, isError = false) {
-      const box = $("nameResults");
-      if (!box) return;
-      box.innerHTML = `<div class="text-sm ${isError ? "text-rose-600" : "text-slate-600"}">${escapeHtml(msg)}</div>`;
-    }
-
-    function renderNameResults(members) {
-      const box = $("nameResults");
-      if (!box) return;
-      box.innerHTML = "";
-
-      if (!members.length) {
-        box.innerHTML = `<div class="text-sm text-slate-600">No matches.</div>`;
-        return;
-      }
-
-      for (const m of members) {
-        const btn = document.createElement("button");
-        btn.className = "btn w-full px-4 py-4 rounded-2xl bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-900 text-xl font-semibold flex items-center justify-between";
-        btn.innerHTML = `<span class="truncate">${escapeHtml(m.name)}</span><span class="ml-3 text-slate-600 font-bold">#${escapeHtml(String(m.number))}</span>`;
-        btn.addEventListener("click", async () => {
-          $("unifiedInput").value = String(m.number);
-          clearNameResults();
-          hideTools();
-          setTimeout(() => focusUnified(false), 0);
-          await doLookupByUnified();
-        });
-        box.appendChild(btn);
-      }
-    }
-
-    async function searchMembersByName(q) {
-      const r = await fetch(`/api/member_search?name=${encodeURIComponent(q)}`);
-      const data = await r.json();
-      if (!r.ok) throw new Error(data?.error || "Name search failed");
-      return data.members || [];
-    }
-
-    function scheduleNameSearch(q) {
-      if (state.nameSearchTimer) clearTimeout(state.nameSearchTimer);
-      if (q.length < 2) { clearNameResults(); return; }
-
-      setNameStatus("Searching…");
-
-      const mySeq = ++state.nameSearchSeq;
-      state.nameSearchTimer = setTimeout(async () => {
-        try {
-          const members = await searchMembersByName(q);
-          if (mySeq !== state.nameSearchSeq) return;
-          renderNameResults(members);
-        } catch (e) {
-          if (mySeq !== state.nameSearchSeq) return;
-          setNameStatus(String(e.message || e), true);
-        }
-      }, 250);
-    }
-
-    // ----------------------------
-    // Tools panel toggles
-    // ----------------------------
-    function showTools() {
-      state.toolsVisible = true;
-      $("toolsHint").classList.add("hidden");
-      // leave whichever tool area visible as-is
-    }
-
-    function hideTools() {
-      state.toolsVisible = false;
-      state.keypadVisible = false;
-      state.keyboardVisible = false;
-      $("keypadArea").classList.add("hidden");
-      $("keyboardArea").classList.add("hidden");
-      $("toolsHint").classList.remove("hidden");
-      setTimeout(() => focusUnified(false), 0);
-    }
-
-    function showKeypad() {
-      showTools();
-      state.keypadVisible = true;
-      state.keyboardVisible = false;
-      $("keypadArea").classList.remove("hidden");
-      $("keyboardArea").classList.add("hidden");
-      $("toolsHint").classList.add("hidden");
-      setTimeout(() => focusUnified(false), 0);
-    }
-
-    function showKeyboard() {
-      showTools();
-      state.keyboardVisible = true;
-      state.keypadVisible = false;
-      $("keyboardArea").classList.remove("hidden");
-      $("keypadArea").classList.add("hidden");
-      $("toolsHint").classList.add("hidden");
-      setTimeout(() => focusUnified(false), 0);
-    }
-
-    // ----------------------------
-    // Unified input append helpers
-    // ----------------------------
-    function appendToUnified(s) {
-      const inp = $("unifiedInput");
-      inp.value = String(inp.value || "") + String(s);
-      handleUnifiedInputChange();
-      focusUnified(false);
-    }
-
-    function backspaceUnified() {
-      const inp = $("unifiedInput");
-      inp.value = String(inp.value || "").slice(0, -1);
-      handleUnifiedInputChange();
-      focusUnified(false);
-    }
-
-    function clearUnified() {
-      $("unifiedInput").value = "";
-      clearNameResults();
-      focusUnified(false);
-    }
-
-    // ----------------------------
-    // API calls
-    // ----------------------------
-    async function fetchActivities() {
-      const r = await fetch("/api/activities");
-      const data = await r.json();
-      if (!r.ok) throw new Error(data?.error || "Failed to fetch activities");
-
-      state.activities = data.activities || [];
-      const select = $("activitySelect");
-      select.innerHTML = "";
-
-      const placeholder = document.createElement("option");
-      placeholder.value = "";
-      placeholder.textContent = state.activities.length ? "Choose an activity…" : "No active activities found";
-      select.appendChild(placeholder);
-
-      for (const a of state.activities) {
-        const opt = document.createElement("option");
-        opt.value = a.id;
-        opt.textContent = `${a.name} (${a.mode || "—"})`;
-        select.appendChild(opt);
-      }
-
-      if (state.activities.length === 1) {
-        select.value = state.activities[0].id;
-        setButtonsEnabled();
-      }
-    }
-
-    async function lookupMemberByNumber(memberNumber) {
-      const r = await fetch(`/api/member?number=${encodeURIComponent(memberNumber)}`);
-      const data = await r.json();
-      if (!r.ok) throw new Error(data?.error || "Member lookup failed");
-      state.member = data.member;
-      setMemberUI();
-    }
-
-    async function apiRecordClockIn(activityId) {
-      const body = { memberId: state.member.id, memberNumber: Number(state.member.number), activityId };
-      const r = await fetch("/api/record", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body)
+    if (!mode) {
+      return res.status(400).json({
+        error: `Activity missing "${activityModeField}" (expected Shift or Attendance)`,
+        activityId,
+        activityName
       });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data?.error || "Clock in failed");
-      return data;
     }
 
-    async function apiSignOut() {
-      const r = await fetch("/api/signout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ memberNumber: Number(state.member.number) })
-      });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data?.error || "Clock out failed");
-      return data;
-    }
+    const now = new Date();
+    const nowIso = now.toISOString();
 
-    // ----------------------------
-    // Unified flow
-    // ----------------------------
-    function handleUnifiedInputChange() {
-      const v = String($("unifiedInput").value || "").trim();
+    // Helper: find open shift for this member using MemNum lookup + End field candidates
+    async function findOpenShift() {
+      for (const endField of endFieldCandidates) {
+        const findUrl = new URL(`https://api.airtable.com/v0/${baseId}/${encodeURIComponent(logsTable)}`);
+        const filter = `AND({${memNumLookupField}}=${memberNum}, {${endField}}=BLANK())`;
+        findUrl.searchParams.set("filterByFormula", filter);
+        findUrl.searchParams.set("maxRecords", "1");
 
-      // If it's digits 1–4 (or digits-in-progress up to 4), do NOT name-search
-      // (prevents scanner noise from triggering name searches)
-      if (/^\d{0,4}$/.test(v)) {
-        clearNameResults();
-        return;
-      }
-
-      // otherwise treat as name search
-      scheduleNameSearch(v);
-    }
-
-    async function doLookupByUnified() {
-      const raw = String($("unifiedInput").value || "").trim();
-
-      const digits = parseMemberDigits(raw);
-      if (!digits) {
-        // If it's not a valid member number, treat it as name search prompt.
-        if (raw.length >= 2) {
-          scheduleNameSearch(raw);
-          return;
+        const r = await airtableFetch(findUrl.toString(), { token });
+        if (r.ok) {
+          const open = r.json?.records?.[0] || null;
+          return { open, endFieldUsed: endField };
         }
-        showResult({ kind: "error", title: "Enter Member #", subtitle: "Or type a name", details: "Scan a 1–4 digit member number, or type at least 2 letters." });
-        return;
+
+        if (isUnknownFieldError(r)) continue;
+        throw new Error(r.text);
       }
 
-      try {
-        await lookupMemberByNumber(digits);
-        clearNameResults();
+      throw new Error(`Could not find a valid end-time field. Tried: ${endFieldCandidates.join(", ")}`);
+    }
 
-        // If only one activity and it's Attendance, auto-record
-        const onlyAttendanceId = getOnlyAttendanceActivityIdIfSingle();
-        if (onlyAttendanceId) {
-          const lastAt = getLastAttendanceAt(state.member.number, onlyAttendanceId);
-          if (lastAt && (Date.now() - lastAt) < ATTENDANCE_DEDUP_MS) {
-            const secs = Math.ceil((ATTENDANCE_DEDUP_MS - (Date.now() - lastAt)) / 1000);
-            showResult({ kind: "warn", title: "Already Recorded ⚠️", subtitle: "Please wait", details: `Try again in ~${secs}s.` });
-            return;
-          }
+    // Helper: server-side attendance dedupe — tries each end field candidate until it finds a valid one
+    async function findRecentAttendance(endIsoCandidateField) {
+      const sinceIso = new Date(Date.now() - attendanceDedupeMinutes * 60 * 1000).toISOString();
 
-          const data = await apiRecordClockIn(onlyAttendanceId);
-          if (data.status === "attendance_recorded") {
-            setLastAttendanceNow(state.member.number, onlyAttendanceId);
-            showResult({
-              kind: "success",
-              title: "Attendance Recorded ✅",
-              subtitle: data.activityName || state.activities[0]?.name || "Attendance",
-              details: `Member #${state.member.number} — ${state.member.name}`
+      const findUrl = new URL(`https://api.airtable.com/v0/${baseId}/${encodeURIComponent(logsTable)}`);
+
+      // linked-record field contains activity record id in ARRAYJOIN output
+      const filter = `AND(
+        {${memNumLookupField}}=${memberNum},
+        FIND("${activityId}", ARRAYJOIN({${logActivityLinkField}})),
+        IS_AFTER({${endIsoCandidateField}}, "${sinceIso}")
+      )`;
+
+      findUrl.searchParams.set("filterByFormula", filter);
+      findUrl.searchParams.set("maxRecords", "1");
+
+      const r = await airtableFetch(findUrl.toString(), { token });
+      return r;
+    }
+
+    // Helper: create attendance record (needs end field, so also uses candidates)
+    async function createAttendanceLog(endIso, preferredEndField = null) {
+      const candidates = preferredEndField
+        ? [preferredEndField, ...endFieldCandidates.filter(x => x !== preferredEndField)]
+        : endFieldCandidates;
+
+      for (const endField of candidates) {
+        const createUrl = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(logsTable)}`;
+        const payload = {
+          records: [{
+            fields: {
+              [logIdField]: `LOG-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`,
+              [logMemberLinkField]: [memberId],
+              [logActivityLinkField]: [activityId],
+              [startField]: nowIso,
+              [endField]: endIso
+            }
+          }]
+        };
+
+        const r = await airtableFetch(createUrl, { method: "POST", token, body: payload });
+        if (r.ok) return { created: r.json, endFieldUsed: endField };
+        if (isUnknownFieldError(r)) continue;
+        throw new Error(r.text);
+      }
+
+      throw new Error(`Could not create attendance log; no valid end field found. Tried: ${endFieldCandidates.join(", ")}`);
+    }
+
+    // 2) Attendance: create closed log immediately with end = now + MaxMinutes
+    if (String(mode).trim() === "Attendance") {
+      const rawMax = activityFields?.[activityMaxMinutesField];
+      const maxMinutes = coerceMinutes(rawMax);
+
+      const endIso =
+        Number.isFinite(maxMinutes) && maxMinutes > 0
+          ? new Date(now.getTime() + maxMinutes * 60 * 1000).toISOString()
+          : nowIso;
+
+      // ✅ server-side dedupe: find any recent attendance for this member+activity
+      let preferredEndField = null;
+      for (const endField of endFieldCandidates) {
+        const r = await findRecentAttendance(endField);
+        if (r.ok) {
+          preferredEndField = endField;
+          const recent = r.json?.records?.[0] || null;
+          if (recent) {
+            return res.status(200).json({
+              status: "attendance_recent_duplicate",
+              activityName,
+              dedupeMinutes: attendanceDedupeMinutes,
+              recentLogRecordId: recent.id
             });
-            return;
           }
-
-          showResult({ kind: "warn", title: "Unexpected Result", subtitle: String(data.status), details: "Please see Khory." });
-          return;
+          break; // field exists and no recent dup found
         }
-
-        // Otherwise: normal path
-        showResult({ kind: "success", title: "Member Loaded", subtitle: `${state.member.name}`, details: `Member #${state.member.number}. Tap Home or Back to continue.` });
-        if (state.autoReturnTimer) clearTimeout(state.autoReturnTimer);
-        state.autoReturnTimer = setTimeout(() => showStep(2), 1200);
-      } catch (e) {
-        showResult({ kind: "error", title: "Member Not Eligible", subtitle: "Please see Khory", details: String(e.message || e) });
+        if (isUnknownFieldError(r)) continue;
+        return res.status(500).json({ error: r.text });
       }
+
+      const { created, endFieldUsed } = await createAttendanceLog(endIso, preferredEndField);
+
+      return res.status(200).json({
+        status: "attendance_recorded",
+        logRecordId: created?.records?.[0]?.id || null,
+        activityName,
+        endFieldUsed,
+
+        // debug-friendly info (optional)
+        maxMinutes: maxMinutes ?? null,
+        maxMinutesRaw: rawMax ?? null,
+        attendanceEndIso: endIso
+      });
     }
 
-    // ----------------------------
-    // Clock flows (unchanged)
-    // ----------------------------
-    async function clockInFlow() {
-      const activityId = $("activitySelect").value;
-      if (!state.member?.id) {
-        showResult({ kind: "error", title: "No Member", subtitle: "Go back and scan", details: "You must load a member first." });
-        return;
-      }
-      if (!activityId) {
-        showResult({ kind: "error", title: "No Activity", subtitle: "Choose an activity", details: "Select an activity before Clock In." });
-        return;
-      }
+    // 3) Shift: enforce one open shift per member
+    if (String(mode).trim() === "Shift") {
+      const { open, endFieldUsed } = await findOpenShift();
 
-      const autoClockOut = $("autoClockOutToggle").checked;
-      const act = getActivityById(activityId);
-      const actMode = String(act?.mode || "").toLowerCase();
-
-      if (actMode === "attendance") {
-        const lastAt = getLastAttendanceAt(state.member.number, activityId);
-        if (lastAt && (Date.now() - lastAt) < ATTENDANCE_DEDUP_MS) {
-          const secs = Math.ceil((ATTENDANCE_DEDUP_MS - (Date.now() - lastAt)) / 1000);
-          showResult({ kind: "warn", title: "Already Recorded ⚠️", subtitle: "Please wait", details: `Try again in ~${secs}s.` });
-          return;
-        }
+      if (open) {
+        return res.status(200).json({
+          status: "already_open",
+          openLogRecordId: open.id,
+          openSince: open.fields?.[startField] || null,
+          endFieldUsed
+        });
       }
 
-      try {
-        const data1 = await apiRecordClockIn(activityId);
+      // Create new open shift
+      const logId = `LOG-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
+      const clockOutToken = randomTokenHex(16);
 
-        if (data1.status === "shift_started") {
-          showResult({ kind: "success", title: "Clocked In ✅", subtitle: data1.activityName || "Activity", details: `Member #${state.member.number} — ${state.member.name}` });
-          return;
-        }
-
-        if (data1.status === "attendance_recorded") {
-          setLastAttendanceNow(state.member.number, activityId);
-          showResult({ kind: "success", title: "Attendance Recorded ✅", subtitle: data1.activityName || "Activity", details: `Member #${state.member.number} — ${state.member.name}` });
-          return;
-        }
-
-        if (data1.status === "already_open") {
-          if (!autoClockOut) {
-            showResult({ kind: "warn", title: "Already Clocked In ⚠️", subtitle: "Clock Out first", details: "Or enable Auto clock-out." });
-            return;
+      const createUrl = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(logsTable)}`;
+      const payload = {
+        records: [{
+          fields: {
+            [logIdField]: logId,
+            [logMemberLinkField]: [memberId],
+            [logActivityLinkField]: [activityId],
+            [startField]: nowIso,
+            [tokenField]: clockOutToken,
+            [tokenExpiresField]: addDaysIso(7),
+            [reminderSentField]: null
           }
+        }]
+      };
 
-          const out = await apiSignOut();
-          if (out.status !== "signed_out" && out.status !== "no_open_shift") {
-            showResult({ kind: "error", title: "Auto Clock-Out Failed", subtitle: "Please see Khory", details: `Result: ${out.status}` });
-            return;
-          }
+      const r = await airtableFetch(createUrl, { method: "POST", token, body: payload });
+      if (!r.ok) return res.status(r.status).json({ error: r.text });
 
-          const data2 = await apiRecordClockIn(activityId);
-          if (data2.status === "shift_started") {
-            showResult({ kind: "success", title: "Switched Activities ✅", subtitle: data2.activityName || "Activity", details: "Auto clock-out complete, now clocked in." });
-            return;
-          }
-          if (data2.status === "attendance_recorded") {
-            setLastAttendanceNow(state.member.number, activityId);
-            showResult({ kind: "success", title: "Attendance Recorded ✅", subtitle: data2.activityName || "Activity", details: "Auto clock-out complete." });
-            return;
-          }
-
-          showResult({ kind: "error", title: "Still Open After Switch", subtitle: "Please see Khory", details: `Result: ${data2.status}` });
-          return;
-        }
-
-        showResult({ kind: "warn", title: "Result", subtitle: String(data1.status), details: "If this looks wrong, please see Khory." });
-      } catch (e) {
-        showResult({ kind: "error", title: "Clock In Failed", subtitle: "Try again", details: String(e.message || e) });
-      }
+      return res.status(200).json({
+        status: "shift_started",
+        logRecordId: r.json?.records?.[0]?.id || null,
+        activityName
+      });
     }
 
-    async function clockOutFlow() {
-      if (!state.member?.number) {
-        showResult({ kind: "error", title: "No Member", subtitle: "Go back and scan", details: "You must load a member first." });
-        return;
-      }
-
-      try {
-        const data = await apiSignOut();
-        if (data.status === "signed_out") {
-          showResult({ kind: "success", title: "Clocked Out ✅", subtitle: "Shift closed", details: `Member #${state.member.number} — ${state.member.name}` });
-          return;
-        }
-        if (data.status === "no_open_shift") {
-          showResult({ kind: "warn", title: "No Open Shift", subtitle: "Nothing to clock out", details: "If you think you were clocked in, please see Khory." });
-          return;
-        }
-        showResult({ kind: "warn", title: "Result", subtitle: String(data.status), details: "If this looks wrong, please see Khory." });
-      } catch (e) {
-        showResult({ kind: "error", title: "Clock Out Failed", subtitle: "Try again", details: String(e.message || e) });
-      }
-    }
-
-    // ----------------------------
-    // Wiring
-    // ----------------------------
-    $("goBtn").addEventListener("click", () => doLookupByUnified());
-    $("unifiedInput").addEventListener("input", () => handleUnifiedInputChange());
-    $("unifiedInput").addEventListener("keydown", (e) => {
-      if (e.key === "Enter") { e.preventDefault(); doLookupByUnified(); }
-      if (e.key === "Escape") { e.preventDefault(); clearUnified(); }
-    });
-
-    $("openKeypadBtn").addEventListener("click", () => showKeypad());
-    $("openKeyboardBtn").addEventListener("click", () => showKeyboard());
-    $("hideToolsBtn").addEventListener("click", () => hideTools());
-
-    // digit keypad events
-    document.querySelectorAll(".keyD").forEach(btn => btn.addEventListener("click", () => appendToUnified(btn.dataset.k)));
-    $("bkspBtn").addEventListener("click", () => backspaceUnified());
-    $("clearBtn").addEventListener("click", () => clearUnified());
-    $("enterBtn").addEventListener("click", () => doLookupByUnified());
-
-    // keyboard events
-    document.querySelectorAll(".keyL").forEach(btn => btn.addEventListener("click", () => appendToUnified(btn.dataset.k)));
-    $("kbdBkspBtn").addEventListener("click", () => backspaceUnified());
-    $("kbdSpaceBtn").addEventListener("click", () => appendToUnified(" "));
-    $("kbdClearBtn").addEventListener("click", () => clearUnified());
-
-    $("toStep2Btn").addEventListener("click", () => showStep(2));
-    $("backToStep1Btn").addEventListener("click", () => showStep(1));
-
-    $("activitySelect").addEventListener("change", () => setButtonsEnabled());
-    $("autoClockOutToggle").addEventListener("change", () => setMemberUI());
-
-    $("clockInBtn").addEventListener("click", () => clockInFlow());
-    $("clockOutBtn").addEventListener("click", () => clockOutFlow());
-
-    $("homeBtn").addEventListener("click", () => resetAll());
-    $("resetBtn").addEventListener("click", () => resetAll());
-    $("resultHomeBtn").addEventListener("click", () => resetAll());
-    $("resultBackBtn").addEventListener("click", () => showStep(2));
-
-    // keep focus for scanners when tab/window regains focus
-    window.addEventListener("focus", () => {
-      if (!$("step1").classList.contains("hidden")) setTimeout(() => focusUnified(false), 0);
-    });
-
-    // scanner-safety focus: only when step1 and NOT interacting with tools
-    function enforceFocusIfStep1Visible() {
-      const step1Visible = !$("step1").classList.contains("hidden");
-      if (!step1Visible) return;
-
-      // If tools are visible, don't steal focus aggressively (touchscreen typing)
-      if (state.keyboardVisible || state.keypadVisible) return;
-
-      setTimeout(() => focusUnified(false), 0);
-    }
-    document.addEventListener("click", enforceFocusIfStep1Visible, true);
-    document.addEventListener("touchstart", enforceFocusIfStep1Visible, true);
-
-    // ----------------------------
-    // Init
-    // ----------------------------
-    (async function init() {
-      showStep(1);
-      setMemberUI();
-      setButtonsEnabled();
-      hideTools();
-
-      try {
-        await fetchActivities();
-        $("activitySelect").value = $("activitySelect").value || "";
-        setButtonsEnabled();
-      } catch (e) {
-        $("activitySelect").innerHTML = `<option value="">Failed to load activities</option>`;
-      }
-
-      setTimeout(() => focusUnified(false), 50);
-    })();
-  </script>
-</body>
-</html>
+    return res.status(400).json({ error: `Unknown mode "${mode}" (expected Shift or Attendance)` });
+  } catch (e) {
+    return res.status(500).json({ error: String(e) });
+  }
+};
