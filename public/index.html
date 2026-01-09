@@ -5,12 +5,11 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Volunteer Clock Kiosk</title>
 
-  <!-- Tailwind (CDN) -->
   <script src="https://cdn.tailwindcss.com"></script>
 
   <style>
     html, body { height: 100%; }
-    body { overflow: hidden; } /* ✅ prevents scrolling */
+    body { overflow: hidden; }
     .btn { -webkit-tap-highlight-color: transparent; }
     .pulse-soft { animation: pulseSoft 1.2s ease-in-out infinite; }
     @keyframes pulseSoft { 0%,100% { transform: scale(1); } 50% { transform: scale(1.02); } }
@@ -18,85 +17,70 @@
 </head>
 
 <body class="bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 text-slate-100">
-  <!-- App shell locked to viewport -->
   <div class="h-[100svh] w-full flex flex-col">
-    <!-- Top bar -->
     <header class="px-5 py-4 flex items-center justify-between">
       <div>
         <div class="text-2xl font-semibold tracking-tight">Volunteer Clock</div>
-        <div id="subtitle" class="text-slate-300 text-sm mt-0.5">Step 1 of 3 — Scan or enter member number</div>
+        <div id="subtitle" class="text-slate-300 text-sm mt-0.5">Step 1 of 3 — Scan member # or type a name</div>
       </div>
       <div class="flex items-center gap-2">
-        <button id="homeBtn" class="btn px-4 py-3 rounded-2xl bg-slate-700/60 hover:bg-slate-700 border border-slate-600/60 text-base">
-          Home
-        </button>
-        <button id="resetBtn" class="btn px-4 py-3 rounded-2xl bg-slate-700/60 hover:bg-slate-700 border border-slate-600/60 text-base">
-          Reset
-        </button>
+        <button id="homeBtn" class="btn px-4 py-3 rounded-2xl bg-slate-700/60 hover:bg-slate-700 border border-slate-600/60 text-base">Home</button>
+        <button id="resetBtn" class="btn px-4 py-3 rounded-2xl bg-slate-700/60 hover:bg-slate-700 border border-slate-600/60 text-base">Reset</button>
       </div>
     </header>
 
-    <!-- Progress -->
     <div class="px-5 pb-3">
       <div class="h-2 w-full rounded-full bg-slate-700/50 overflow-hidden">
         <div id="progressBar" class="h-2 w-1/3 bg-emerald-500"></div>
       </div>
     </div>
 
-    <!-- Main -->
     <main class="flex-1 px-5 pb-5">
-      <!-- STEP 1: Member -->
+      <!-- STEP 1 -->
       <section id="step1" class="h-full">
         <div class="h-full grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <!-- Left: member entry -->
           <div class="h-full rounded-3xl bg-white/90 text-slate-900 border border-white/10 shadow-xl p-5 flex flex-col">
             <div class="flex items-start justify-between gap-3">
               <div>
-                <div class="text-lg font-semibold">Member</div>
-                <div class="text-sm text-slate-600">Scan with handheld scanner or type using keypad.</div>
+                <div class="text-lg font-semibold">Lookup</div>
+                <div class="text-sm text-slate-600">Scan member # (digits) or type a name.</div>
               </div>
-              <div class="px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm">
-                Ready
-              </div>
+              <div class="px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm">Ready</div>
             </div>
 
             <div class="mt-4">
-              <label class="block text-sm font-medium text-slate-700 mb-2">Member #</label>
+              <label class="block text-sm font-medium text-slate-700 mb-2">Member # or Name</label>
+
               <div class="flex gap-2">
-                <input id="memberInput" inputmode="numeric" autocomplete="off"
-                       class="flex-1 px-5 py-4 rounded-2xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-900 text-slate-900 text-3xl tracking-wider"
-                       placeholder="Scan or type…" />
-                <button id="lookupBtn"
+                <input id="unifiedInput" autocomplete="off" inputmode="text"
+                       class="flex-1 px-5 py-4 rounded-2xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-900 text-slate-900 text-2xl"
+                       placeholder="Scan #123 or type 'John'…" />
+                <button id="goBtn"
                         class="btn px-6 py-4 rounded-2xl bg-slate-900 text-white hover:bg-slate-800 text-xl font-semibold">
-                  Lookup
+                  Go
                 </button>
               </div>
 
-              <!-- ✅ Name lookup (auto-search while typing) -->
-              <div class="mt-4">
-                <label class="block text-sm font-medium text-slate-700 mb-2">Or search by name</label>
-                <div class="flex gap-2">
-                  <input id="nameSearchInput" autocomplete="off"
-                         class="flex-1 px-4 py-3 rounded-2xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-900 text-slate-900 text-xl"
-                         placeholder="Type at least 2 letters…" />
-                  <button id="nameClearBtn"
-                          class="btn px-5 py-3 rounded-2xl bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-900 text-lg font-semibold">
-                    Clear
-                  </button>
-                </div>
-
-                <div id="nameSearchResults" class="mt-3 grid grid-cols-1 gap-2"></div>
-                <div id="nameSearchHint" class="mt-2 text-sm text-slate-600">
-                  Auto-searches as you type. Shows up to <b>4</b> matches. Tap a name to fill the Member #.
-                </div>
-              </div>
-
-              <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
                 <button id="openKeypadBtn"
                         class="btn w-full px-6 py-5 rounded-3xl bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-900 text-2xl font-semibold">
                   Open Keypad
                 </button>
 
+                <button id="openKeyboardBtn"
+                        class="btn w-full px-6 py-5 rounded-3xl bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-900 text-2xl font-semibold">
+                  Keyboard
+                </button>
+              </div>
+
+              <div class="mt-3">
+                <div id="nameResults" class="grid grid-cols-1 gap-2"></div>
+                <div id="nameHint" class="mt-2 text-sm text-slate-600">
+                  If you type letters, it auto-searches and shows up to <b>4</b> matches.
+                </div>
+              </div>
+
+              <div class="mt-3">
                 <label class="w-full flex items-center justify-between gap-3 px-6 py-5 rounded-3xl bg-white border border-slate-200 text-slate-900 select-none">
                   <div>
                     <div class="text-base font-semibold leading-tight">Auto clock-out</div>
@@ -107,11 +91,10 @@
               </div>
 
               <div class="mt-2 text-sm text-slate-600">
-                Allowed: <b>1–4 digits</b>.
+                Member # must be <b>1–4 digits</b>.
               </div>
             </div>
 
-            <!-- Member card -->
             <div class="mt-4 rounded-3xl border border-slate-200 bg-white p-5">
               <div class="flex items-start justify-between gap-4">
                 <div>
@@ -131,57 +114,95 @@
                       class="btn w-full py-5 rounded-3xl bg-emerald-600 hover:bg-emerald-500 text-white text-3xl font-semibold disabled:opacity-40 disabled:cursor-not-allowed">
                 Continue
               </button>
-              <div class="mt-2 text-sm text-slate-600">
-                Continue is enabled after a successful lookup.
-              </div>
+              <div class="mt-2 text-sm text-slate-600">Continue is enabled after a successful lookup.</div>
             </div>
           </div>
 
-          <!-- Right: keypad (fixed height, no scroll) -->
+          <!-- Right panel: Keypad / Keyboard -->
           <div class="h-full rounded-3xl bg-white/90 text-slate-900 border border-white/10 shadow-xl p-5 flex flex-col">
             <div class="flex items-center justify-between">
               <div>
-                <div class="text-lg font-semibold">Keypad</div>
+                <div class="text-lg font-semibold">Input Tools</div>
                 <div class="text-sm text-slate-600">Touchscreen entry (optional)</div>
               </div>
-              <button id="closeKeypadBtn"
+              <button id="hideToolsBtn"
                       class="btn px-4 py-3 rounded-2xl bg-slate-100 hover:bg-slate-200 border border-slate-200 text-base">
                 Hide
               </button>
             </div>
 
+            <!-- DIGIT KEYPAD -->
             <div id="keypadArea" class="mt-4 flex-1 hidden">
-              <div class="grid grid-cols-3 gap-3 h-full content-start">
-                <button class="btn key py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="1">1</button>
-                <button class="btn key py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="2">2</button>
-                <button class="btn key py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="3">3</button>
-
-                <button class="btn key py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="4">4</button>
-                <button class="btn key py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="5">5</button>
-                <button class="btn key py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="6">6</button>
-
-                <button class="btn key py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="7">7</button>
-                <button class="btn key py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="8">8</button>
-                <button class="btn key py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="9">9</button>
-
+              <div class="text-sm text-slate-600 mb-3">Numeric keypad (member #)</div>
+              <div class="grid grid-cols-3 gap-3">
+                <button class="btn keyD py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="1">1</button>
+                <button class="btn keyD py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="2">2</button>
+                <button class="btn keyD py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="3">3</button>
+                <button class="btn keyD py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="4">4</button>
+                <button class="btn keyD py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="5">5</button>
+                <button class="btn keyD py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="6">6</button>
+                <button class="btn keyD py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="7">7</button>
+                <button class="btn keyD py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="8">8</button>
+                <button class="btn keyD py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="9">9</button>
                 <button id="bkspBtn" class="btn py-6 rounded-2xl bg-slate-200 text-slate-900 text-2xl font-semibold border border-slate-300">⌫</button>
-                <button class="btn key py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="0">0</button>
+                <button class="btn keyD py-6 rounded-2xl bg-slate-900 text-white text-3xl font-semibold" data-k="0">0</button>
                 <button id="clearBtn" class="btn py-6 rounded-2xl bg-slate-200 text-slate-900 text-2xl font-semibold border border-slate-300">Clear</button>
-
                 <button id="enterBtn" class="btn col-span-3 py-6 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white text-3xl font-semibold">
-                  Enter / Lookup
+                  Enter / Go
                 </button>
               </div>
             </div>
 
-            <div id="keypadHint" class="mt-4 text-slate-700 text-base">
-              Tap <b>Open Keypad</b> on the left to show it here, or just scan using the handheld scanner.
+            <!-- ON-SCREEN KEYBOARD -->
+            <div id="keyboardArea" class="mt-4 flex-1 hidden">
+              <div class="text-sm text-slate-600 mb-3">Keyboard (name search)</div>
+
+              <div class="grid grid-cols-10 gap-2">
+                <!-- Row 1 -->
+                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="Q">Q</button>
+                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="W">W</button>
+                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="E">E</button>
+                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="R">R</button>
+                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="T">T</button>
+                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="Y">Y</button>
+                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="U">U</button>
+                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="I">I</button>
+                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="O">O</button>
+                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="P">P</button>
+
+                <!-- Row 2 -->
+                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="A">A</button>
+                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="S">S</button>
+                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="D">D</button>
+                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="F">F</button>
+                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="G">G</button>
+                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="H">H</button>
+                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="J">J</button>
+                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="K">K</button>
+                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="L">L</button>
+                <button id="kbdBkspBtn" class="btn py-4 rounded-2xl bg-slate-200 text-slate-900 text-lg font-semibold border border-slate-300">⌫</button>
+
+                <!-- Row 3 -->
+                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="Z">Z</button>
+                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="X">X</button>
+                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="C">C</button>
+                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="V">V</button>
+                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="B">B</button>
+                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="N">N</button>
+                <button class="btn keyL py-4 rounded-2xl bg-slate-900 text-white text-xl font-semibold" data-k="M">M</button>
+                <button id="kbdSpaceBtn" class="btn col-span-2 py-4 rounded-2xl bg-slate-200 text-slate-900 text-lg font-semibold border border-slate-300">Space</button>
+                <button id="kbdClearBtn" class="btn py-4 rounded-2xl bg-slate-200 text-slate-900 text-lg font-semibold border border-slate-300">Clear</button>
+              </div>
+            </div>
+
+            <div id="toolsHint" class="mt-4 text-slate-700 text-base">
+              Tap <b>Open Keypad</b> for member # or <b>Keyboard</b> for name search.
             </div>
           </div>
         </div>
       </section>
 
-      <!-- STEP 2: Activity + actions -->
+      <!-- STEP 2 -->
       <section id="step2" class="h-full hidden">
         <div class="h-full grid grid-cols-1 lg:grid-cols-2 gap-4">
           <div class="h-full rounded-3xl bg-white/90 text-slate-900 border border-white/10 shadow-xl p-5 flex flex-col">
@@ -255,53 +276,41 @@
         </div>
       </section>
 
-      <!-- STEP 3: Result screen -->
+      <!-- STEP 3 -->
       <section id="step3" class="h-full hidden">
         <div id="resultCard"
              class="h-full rounded-3xl border border-white/10 shadow-xl p-6 flex flex-col items-center justify-center text-center bg-white/90 text-slate-900">
           <div id="resultTitle" class="text-5xl md:text-6xl font-extrabold tracking-tight">Done</div>
           <div id="resultSubtitle" class="mt-4 text-2xl md:text-3xl text-slate-700">—</div>
-
           <div id="resultDetails" class="mt-6 text-lg md:text-xl text-slate-600 max-w-3xl">—</div>
 
           <div class="mt-10 flex gap-3">
-            <button id="resultHomeBtn"
-                    class="btn px-8 py-5 rounded-3xl bg-slate-900 text-white hover:bg-slate-800 text-2xl font-semibold">
-              Home
-            </button>
-            <button id="resultBackBtn"
-                    class="btn px-8 py-5 rounded-3xl bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-900 text-2xl font-semibold">
-              Back
-            </button>
+            <button id="resultHomeBtn" class="btn px-8 py-5 rounded-3xl bg-slate-900 text-white hover:bg-slate-800 text-2xl font-semibold">Home</button>
+            <button id="resultBackBtn" class="btn px-8 py-5 rounded-3xl bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-900 text-2xl font-semibold">Back</button>
           </div>
 
-          <div id="autoReturnText" class="mt-6 text-base text-slate-500">
-            Returning to Home automatically…
-          </div>
+          <div id="autoReturnText" class="mt-6 text-base text-slate-500">Returning to Home automatically…</div>
         </div>
       </section>
     </main>
   </div>
 
   <script>
-    // ----------------------------
-    // State
-    // ----------------------------
     const state = {
-      member: null,         // {id, number, name, phoneE164}
+      member: null,
       activities: [],
-      resetTimer: null,
       autoReturnTimer: null,
-      keypadVisible: false,
-      nameResults: [],
       nameSearchTimer: null,
       nameSearchSeq: 0,
+      toolsVisible: false,
+      keypadVisible: false,
+      keyboardVisible: false,
     };
 
     const $ = (id) => document.getElementById(id);
 
     // ----------------------------
-    // Step navigation (no scrolling)
+    // Step navigation
     // ----------------------------
     function showStep(n) {
       const steps = [$("step1"), $("step2"), $("step3")];
@@ -311,9 +320,9 @@
       const bar = $("progressBar");
 
       if (n === 1) {
-        subtitle.textContent = "Step 1 of 3 — Scan or enter member number";
+        subtitle.textContent = "Step 1 of 3 — Scan member # or type a name";
         bar.className = "h-2 w-1/3 bg-emerald-500";
-        setTimeout(() => focusMemberInput(false), 50);
+        setTimeout(() => focusUnified(false), 50);
       } else if (n === 2) {
         subtitle.textContent = "Step 2 of 3 — Choose activity and clock in/out";
         bar.className = "h-2 w-2/3 bg-emerald-500";
@@ -326,22 +335,32 @@
     // ----------------------------
     // Helpers
     // ----------------------------
-    function onlyDigits1to4(s) {
-      const t = String(s || "").trim();
-      return /^\d{1,4}$/.test(t) ? t : null;
-    }
-
-    function focusMemberInput(select = true) {
-      const inp = $("memberInput");
+    function focusUnified(select = true) {
+      const inp = $("unifiedInput");
       if (!inp) return;
       inp.focus();
       if (select) inp.select();
     }
 
+    function parseMemberDigits(v) {
+      const t = String(v || "").trim();
+      return /^\d{1,4}$/.test(t) ? t : null;
+    }
+
+    function escapeHtml(s) {
+      return String(s ?? "").replace(/[&<>"']/g, (c) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;"
+      }[c]));
+    }
+
     // ----------------------------
     // Attendance dedupe + activity helpers
     // ----------------------------
-    const ATTENDANCE_DEDUP_MS = 3 * 60 * 1000; // 3 minutes
+    const ATTENDANCE_DEDUP_MS = 3 * 60 * 1000;
 
     function getActivityById(id) {
       return state.activities.find(a => a.id === id) || null;
@@ -369,95 +388,11 @@
     }
 
     // ----------------------------
-    // Name search UI
-    // ----------------------------
-    function clearNameResults() {
-      state.nameResults = [];
-      const box = $("nameSearchResults");
-      if (box) box.innerHTML = "";
-    }
-
-    function setNameResultsStatus(msg, isError = false) {
-      const box = $("nameSearchResults");
-      if (!box) return;
-      box.innerHTML = `<div class="text-sm ${isError ? "text-rose-600" : "text-slate-600"}">${escapeHtml(msg)}</div>`;
-    }
-
-    function renderNameResults(members) {
-      const box = $("nameSearchResults");
-      if (!box) return;
-      box.innerHTML = "";
-
-      if (!members.length) {
-        box.innerHTML = `<div class="text-sm text-slate-600">No matches.</div>`;
-        return;
-      }
-
-      for (const m of members) {
-        const btn = document.createElement("button");
-        btn.className = "btn w-full px-4 py-4 rounded-2xl bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-900 text-xl font-semibold flex items-center justify-between";
-        btn.innerHTML = `<span class="truncate">${escapeHtml(m.name)}</span><span class="ml-3 text-slate-600 font-bold">#${escapeHtml(String(m.number))}</span>`;
-        btn.addEventListener("click", async () => {
-          $("memberInput").value = String(m.number);
-          $("nameSearchInput").value = "";
-          clearNameResults();
-          setTimeout(() => focusMemberInput(false), 0);
-          await doLookup();
-        });
-        box.appendChild(btn);
-      }
-    }
-
-    function escapeHtml(s) {
-      return String(s ?? "").replace(/[&<>"']/g, (c) => ({
-        "&": "&amp;",
-        "<": "&lt;",
-        ">": "&gt;",
-        '"': "&quot;",
-        "'": "&#39;"
-      }[c]));
-    }
-
-    async function searchMembersByName(q) {
-      const r = await fetch(`/api/member_search?name=${encodeURIComponent(q)}`);
-      const data = await r.json();
-      if (!r.ok) throw new Error(data?.error || "Name search failed");
-      return data.members || [];
-    }
-
-    function scheduleNameSearch() {
-      const q = String($("nameSearchInput").value || "").trim();
-
-      if (state.nameSearchTimer) clearTimeout(state.nameSearchTimer);
-
-      if (q.length < 2) {
-        clearNameResults();
-        return;
-      }
-
-      // show a subtle status quickly
-      setNameResultsStatus("Searching…");
-
-      const mySeq = ++state.nameSearchSeq;
-      state.nameSearchTimer = setTimeout(async () => {
-        try {
-          const members = await searchMembersByName(q);
-          // ignore out-of-order responses
-          if (mySeq !== state.nameSearchSeq) return;
-          state.nameResults = members;
-          renderNameResults(members);
-        } catch (e) {
-          if (mySeq !== state.nameSearchSeq) return;
-          setNameResultsStatus(String(e.message || e), true);
-        }
-      }, 250); // debounce
-    }
-
-    // ----------------------------
-    // Member UI
+    // UI setters
     // ----------------------------
     function setMemberUI() {
       const m = state.member;
+
       $("memberName").textContent = m?.name || "—";
       $("memberMeta").textContent = m?.phoneE164 ? `Phone: ${m.phoneE164}` : (m ? "Phone: —" : "Not loaded");
       $("memberNum").textContent = m?.number ?? "—";
@@ -478,35 +413,11 @@
       $("clockOutBtn").disabled = !(hasMember);
     }
 
-    function clearTimers() {
-      if (state.resetTimer) clearTimeout(state.resetTimer);
-      if (state.autoReturnTimer) clearTimeout(state.autoReturnTimer);
-      state.resetTimer = null;
-      state.autoReturnTimer = null;
-    }
-
-    function resetAll() {
-      clearTimers();
-      state.member = null;
-      $("memberInput").value = "";
-      $("activitySelect").value = "";
-      $("nameSearchInput").value = "";
-      clearNameResults();
-      setMemberUI();
-      hideKeypad();
-      showStep(1);
-      setTimeout(() => focusMemberInput(false), 50);
-    }
-
     function showResult({ kind, title, subtitle, details }) {
       const card = $("resultCard");
-      const titleEl = $("resultTitle");
-      const subEl = $("resultSubtitle");
-      const detEl = $("resultDetails");
-
-      titleEl.textContent = title || "Result";
-      subEl.textContent = subtitle || "—";
-      detEl.textContent = details || "";
+      $("resultTitle").textContent = title || "Result";
+      $("resultSubtitle").textContent = subtitle || "—";
+      $("resultDetails").textContent = details || "";
 
       card.className = "h-full rounded-3xl border border-white/10 shadow-xl p-6 flex flex-col items-center justify-center text-center bg-white/90 text-slate-900";
       if (kind === "success") card.className += " ring-8 ring-emerald-300";
@@ -520,36 +431,145 @@
       state.autoReturnTimer = setTimeout(() => resetAll(), 4500);
     }
 
-    // ----------------------------
-    // Keypad
-    // ----------------------------
-    function showKeypad() {
-      state.keypadVisible = true;
-      $("keypadArea").classList.remove("hidden");
-      $("keypadHint").classList.add("hidden");
-      setTimeout(() => focusMemberInput(false), 0);
+    function resetAll() {
+      if (state.autoReturnTimer) clearTimeout(state.autoReturnTimer);
+      if (state.nameSearchTimer) clearTimeout(state.nameSearchTimer);
+
+      state.member = null;
+      $("unifiedInput").value = "";
+      $("activitySelect").value = "";
+      clearNameResults();
+      hideTools();
+      setMemberUI();
+      showStep(1);
+      setTimeout(() => focusUnified(false), 50);
     }
-    function hideKeypad() {
+
+    // ----------------------------
+    // Name results (from unified input)
+    // ----------------------------
+    function clearNameResults() {
+      const box = $("nameResults");
+      if (box) box.innerHTML = "";
+    }
+
+    function setNameStatus(msg, isError = false) {
+      const box = $("nameResults");
+      if (!box) return;
+      box.innerHTML = `<div class="text-sm ${isError ? "text-rose-600" : "text-slate-600"}">${escapeHtml(msg)}</div>`;
+    }
+
+    function renderNameResults(members) {
+      const box = $("nameResults");
+      if (!box) return;
+      box.innerHTML = "";
+
+      if (!members.length) {
+        box.innerHTML = `<div class="text-sm text-slate-600">No matches.</div>`;
+        return;
+      }
+
+      for (const m of members) {
+        const btn = document.createElement("button");
+        btn.className = "btn w-full px-4 py-4 rounded-2xl bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-900 text-xl font-semibold flex items-center justify-between";
+        btn.innerHTML = `<span class="truncate">${escapeHtml(m.name)}</span><span class="ml-3 text-slate-600 font-bold">#${escapeHtml(String(m.number))}</span>`;
+        btn.addEventListener("click", async () => {
+          $("unifiedInput").value = String(m.number);
+          clearNameResults();
+          hideTools();
+          setTimeout(() => focusUnified(false), 0);
+          await doLookupByUnified();
+        });
+        box.appendChild(btn);
+      }
+    }
+
+    async function searchMembersByName(q) {
+      const r = await fetch(`/api/member_search?name=${encodeURIComponent(q)}`);
+      const data = await r.json();
+      if (!r.ok) throw new Error(data?.error || "Name search failed");
+      return data.members || [];
+    }
+
+    function scheduleNameSearch(q) {
+      if (state.nameSearchTimer) clearTimeout(state.nameSearchTimer);
+      if (q.length < 2) { clearNameResults(); return; }
+
+      setNameStatus("Searching…");
+
+      const mySeq = ++state.nameSearchSeq;
+      state.nameSearchTimer = setTimeout(async () => {
+        try {
+          const members = await searchMembersByName(q);
+          if (mySeq !== state.nameSearchSeq) return;
+          renderNameResults(members);
+        } catch (e) {
+          if (mySeq !== state.nameSearchSeq) return;
+          setNameStatus(String(e.message || e), true);
+        }
+      }, 250);
+    }
+
+    // ----------------------------
+    // Tools panel toggles
+    // ----------------------------
+    function showTools() {
+      state.toolsVisible = true;
+      $("toolsHint").classList.add("hidden");
+      // leave whichever tool area visible as-is
+    }
+
+    function hideTools() {
+      state.toolsVisible = false;
       state.keypadVisible = false;
+      state.keyboardVisible = false;
       $("keypadArea").classList.add("hidden");
-      $("keypadHint").classList.remove("hidden");
-      setTimeout(() => focusMemberInput(false), 0);
+      $("keyboardArea").classList.add("hidden");
+      $("toolsHint").classList.remove("hidden");
+      setTimeout(() => focusUnified(false), 0);
     }
-    function appendDigit(d) {
-      const inp = $("memberInput");
-      const cur = String(inp.value || "");
-      if (cur.length >= 4) return;
-      inp.value = cur + String(d);
-      focusMemberInput(false);
+
+    function showKeypad() {
+      showTools();
+      state.keypadVisible = true;
+      state.keyboardVisible = false;
+      $("keypadArea").classList.remove("hidden");
+      $("keyboardArea").classList.add("hidden");
+      $("toolsHint").classList.add("hidden");
+      setTimeout(() => focusUnified(false), 0);
     }
-    function backspace() {
-      const inp = $("memberInput");
+
+    function showKeyboard() {
+      showTools();
+      state.keyboardVisible = true;
+      state.keypadVisible = false;
+      $("keyboardArea").classList.remove("hidden");
+      $("keypadArea").classList.add("hidden");
+      $("toolsHint").classList.add("hidden");
+      setTimeout(() => focusUnified(false), 0);
+    }
+
+    // ----------------------------
+    // Unified input append helpers
+    // ----------------------------
+    function appendToUnified(s) {
+      const inp = $("unifiedInput");
+      inp.value = String(inp.value || "") + String(s);
+      handleUnifiedInputChange();
+      focusUnified(false);
+    }
+
+    function backspaceUnified() {
+      const inp = $("unifiedInput");
       inp.value = String(inp.value || "").slice(0, -1);
-      focusMemberInput(false);
+      handleUnifiedInputChange();
+      focusUnified(false);
     }
-    function clearInput() {
-      $("memberInput").value = "";
-      focusMemberInput(false);
+
+    function clearUnified() {
+      $("unifiedInput").value = "";
+      clearNameResults();
+      focusUnified(false);
     }
 
     // ----------------------------
@@ -614,29 +634,47 @@
     }
 
     // ----------------------------
-    // Flows
+    // Unified flow
     // ----------------------------
-    async function doLookup() {
-      const memberNum = onlyDigits1to4($("memberInput").value);
-      if (!memberNum) {
-        showResult({ kind: "error", title: "Invalid Member #", subtitle: "Enter 1–4 digits", details: "Try scanning again or use the keypad." });
+    function handleUnifiedInputChange() {
+      const v = String($("unifiedInput").value || "").trim();
+
+      // If it's digits 1–4 (or digits-in-progress up to 4), do NOT name-search
+      // (prevents scanner noise from triggering name searches)
+      if (/^\d{0,4}$/.test(v)) {
+        clearNameResults();
+        return;
+      }
+
+      // otherwise treat as name search
+      scheduleNameSearch(v);
+    }
+
+    async function doLookupByUnified() {
+      const raw = String($("unifiedInput").value || "").trim();
+
+      const digits = parseMemberDigits(raw);
+      if (!digits) {
+        // If it's not a valid member number, treat it as name search prompt.
+        if (raw.length >= 2) {
+          scheduleNameSearch(raw);
+          return;
+        }
+        showResult({ kind: "error", title: "Enter Member #", subtitle: "Or type a name", details: "Scan a 1–4 digit member number, or type at least 2 letters." });
         return;
       }
 
       try {
-        await lookupMemberByNumber(memberNum);
+        await lookupMemberByNumber(digits);
+        clearNameResults();
 
+        // If only one activity and it's Attendance, auto-record
         const onlyAttendanceId = getOnlyAttendanceActivityIdIfSingle();
         if (onlyAttendanceId) {
           const lastAt = getLastAttendanceAt(state.member.number, onlyAttendanceId);
           if (lastAt && (Date.now() - lastAt) < ATTENDANCE_DEDUP_MS) {
             const secs = Math.ceil((ATTENDANCE_DEDUP_MS - (Date.now() - lastAt)) / 1000);
-            showResult({
-              kind: "warn",
-              title: "Already Recorded ⚠️",
-              subtitle: "Please wait before scanning again",
-              details: `Attendance was just recorded. Try again in ~${secs}s.`
-            });
+            showResult({ kind: "warn", title: "Already Recorded ⚠️", subtitle: "Please wait", details: `Try again in ~${secs}s.` });
             return;
           }
 
@@ -652,29 +690,22 @@
             return;
           }
 
-          showResult({
-            kind: "warn",
-            title: "Unexpected Result",
-            subtitle: String(data.status),
-            details: "Please see Khory."
-          });
+          showResult({ kind: "warn", title: "Unexpected Result", subtitle: String(data.status), details: "Please see Khory." });
           return;
         }
 
+        // Otherwise: normal path
         showResult({ kind: "success", title: "Member Loaded", subtitle: `${state.member.name}`, details: `Member #${state.member.number}. Tap Home or Back to continue.` });
-
         if (state.autoReturnTimer) clearTimeout(state.autoReturnTimer);
         state.autoReturnTimer = setTimeout(() => showStep(2), 1200);
       } catch (e) {
-        showResult({
-          kind: "error",
-          title: "Member Not Eligible",
-          subtitle: "Please see Khory",
-          details: String(e.message || e)
-        });
+        showResult({ kind: "error", title: "Member Not Eligible", subtitle: "Please see Khory", details: String(e.message || e) });
       }
     }
 
+    // ----------------------------
+    // Clock flows (unchanged)
+    // ----------------------------
     async function clockInFlow() {
       const activityId = $("activitySelect").value;
       if (!state.member?.id) {
@@ -687,19 +718,14 @@
       }
 
       const autoClockOut = $("autoClockOutToggle").checked;
-
       const act = getActivityById(activityId);
       const actMode = String(act?.mode || "").toLowerCase();
+
       if (actMode === "attendance") {
         const lastAt = getLastAttendanceAt(state.member.number, activityId);
         if (lastAt && (Date.now() - lastAt) < ATTENDANCE_DEDUP_MS) {
           const secs = Math.ceil((ATTENDANCE_DEDUP_MS - (Date.now() - lastAt)) / 1000);
-          showResult({
-            kind: "warn",
-            title: "Already Recorded ⚠️",
-            subtitle: "Please wait before scanning again",
-            details: `Attendance for ${act?.name || "this activity"} was just recorded. Try again in ~${secs}s.`
-          });
+          showResult({ kind: "warn", title: "Already Recorded ⚠️", subtitle: "Please wait", details: `Try again in ~${secs}s.` });
           return;
         }
       }
@@ -720,12 +746,7 @@
 
         if (data1.status === "already_open") {
           if (!autoClockOut) {
-            showResult({
-              kind: "warn",
-              title: "Already Clocked In ⚠️",
-              subtitle: "Clock Out first (or enable Auto clock-out)",
-              details: `Open shift started: ${data1.openSince || "earlier"}.`
-            });
+            showResult({ kind: "warn", title: "Already Clocked In ⚠️", subtitle: "Clock Out first", details: "Or enable Auto clock-out." });
             return;
           }
 
@@ -781,27 +802,28 @@
     // ----------------------------
     // Wiring
     // ----------------------------
-    $("lookupBtn").addEventListener("click", () => doLookup());
-    $("memberInput").addEventListener("keydown", (e) => {
-      if (e.key === "Enter") { e.preventDefault(); doLookup(); }
+    $("goBtn").addEventListener("click", () => doLookupByUnified());
+    $("unifiedInput").addEventListener("input", () => handleUnifiedInputChange());
+    $("unifiedInput").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); doLookupByUnified(); }
+      if (e.key === "Escape") { e.preventDefault(); clearUnified(); }
     });
 
-    // ✅ Auto-search while typing (debounced)
-    $("nameSearchInput").addEventListener("input", () => scheduleNameSearch());
-    $("nameSearchInput").addEventListener("keydown", (e) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        $("nameSearchInput").value = "";
-        clearNameResults();
-        setTimeout(() => focusMemberInput(false), 0);
-      }
-    });
+    $("openKeypadBtn").addEventListener("click", () => showKeypad());
+    $("openKeyboardBtn").addEventListener("click", () => showKeyboard());
+    $("hideToolsBtn").addEventListener("click", () => hideTools());
 
-    $("nameClearBtn").addEventListener("click", () => {
-      $("nameSearchInput").value = "";
-      clearNameResults();
-      setTimeout(() => focusMemberInput(false), 0);
-    });
+    // digit keypad events
+    document.querySelectorAll(".keyD").forEach(btn => btn.addEventListener("click", () => appendToUnified(btn.dataset.k)));
+    $("bkspBtn").addEventListener("click", () => backspaceUnified());
+    $("clearBtn").addEventListener("click", () => clearUnified());
+    $("enterBtn").addEventListener("click", () => doLookupByUnified());
+
+    // keyboard events
+    document.querySelectorAll(".keyL").forEach(btn => btn.addEventListener("click", () => appendToUnified(btn.dataset.k)));
+    $("kbdBkspBtn").addEventListener("click", () => backspaceUnified());
+    $("kbdSpaceBtn").addEventListener("click", () => appendToUnified(" "));
+    $("kbdClearBtn").addEventListener("click", () => clearUnified());
 
     $("toStep2Btn").addEventListener("click", () => showStep(2));
     $("backToStep1Btn").addEventListener("click", () => showStep(1));
@@ -814,32 +836,26 @@
 
     $("homeBtn").addEventListener("click", () => resetAll());
     $("resetBtn").addEventListener("click", () => resetAll());
-
     $("resultHomeBtn").addEventListener("click", () => resetAll());
     $("resultBackBtn").addEventListener("click", () => showStep(2));
 
-    // keypad
-    $("openKeypadBtn").addEventListener("click", () => { showKeypad(); focusMemberInput(false); });
-    $("closeKeypadBtn").addEventListener("click", () => hideKeypad());
-    $("bkspBtn").addEventListener("click", () => backspace());
-    $("clearBtn").addEventListener("click", () => clearInput());
-    $("enterBtn").addEventListener("click", () => doLookup());
-    document.querySelectorAll(".key").forEach(btn => btn.addEventListener("click", () => appendDigit(btn.dataset.k)));
+    // keep focus for scanners when tab/window regains focus
+    window.addEventListener("focus", () => {
+      if (!$("step1").classList.contains("hidden")) setTimeout(() => focusUnified(false), 0);
+    });
 
-    window.addEventListener("focus", () => focusMemberInput(false));
-
-    function enforceMemberFocusIfStep1Visible() {
+    // scanner-safety focus: only when step1 and NOT interacting with tools
+    function enforceFocusIfStep1Visible() {
       const step1Visible = !$("step1").classList.contains("hidden");
       if (!step1Visible) return;
 
-      // If user is typing a name, do NOT steal focus back to member input
-      const active = document.activeElement;
-      if (active && active.id === "nameSearchInput") return;
+      // If tools are visible, don't steal focus aggressively (touchscreen typing)
+      if (state.keyboardVisible || state.keypadVisible) return;
 
-      setTimeout(() => focusMemberInput(false), 0);
+      setTimeout(() => focusUnified(false), 0);
     }
-    document.addEventListener("click", enforceMemberFocusIfStep1Visible, true);
-    document.addEventListener("touchstart", enforceMemberFocusIfStep1Visible, true);
+    document.addEventListener("click", enforceFocusIfStep1Visible, true);
+    document.addEventListener("touchstart", enforceFocusIfStep1Visible, true);
 
     // ----------------------------
     // Init
@@ -848,7 +864,7 @@
       showStep(1);
       setMemberUI();
       setButtonsEnabled();
-      hideKeypad();
+      hideTools();
 
       try {
         await fetchActivities();
@@ -858,7 +874,7 @@
         $("activitySelect").innerHTML = `<option value="">Failed to load activities</option>`;
       }
 
-      setTimeout(() => focusMemberInput(false), 50);
+      setTimeout(() => focusUnified(false), 50);
     })();
   </script>
 </body>
