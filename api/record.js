@@ -1,224 +1,240 @@
-const { randomBytes, randomUUID } = require("crypto");
-
-function addDaysIso(days) {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return d.toISOString();
-}
-
-function randomTokenHex(bytes = 16) {
-  return randomBytes(bytes).toString("hex");
-}
-
-async function airtableFetch(url, { method = "GET", token, body } = {}) {
-  const r = await fetch(url, {
-    method,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...(body ? { "Content-Type": "application/json" } : {})
-    },
-    body: body ? JSON.stringify(body) : undefined
-  });
-
-  const text = await r.text();
-  let json = null;
-  try { json = JSON.parse(text); } catch { /* ignore */ }
-
-  return { ok: r.ok, status: r.status, text, json };
-}
-
-function isUnknownFieldError(resp) {
-  // Airtable errors look like: {"error":{"type":"UNKNOWN_FIELD_NAME","message":"Unknown field name: \"EndTime\""}}
-  return resp?.json?.error?.type === "UNKNOWN_FIELD_NAME";
-}
-
-module.exports = async (req, res) => {
-  // ---- CORS (so browser tools + your future web UI work) ----
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-  if (req.method === "OPTIONS") return res.status(200).end();
-  if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
-
+// api/record.js
+module.exports = async function handler(req, res) {
   try {
-    const { memberId, memberNumber, activityId } = req.body || {};
+    if (req.method !== "POST") {
+      return res.status(405).json({ error: "Method not allowed" });
+    }
+
+    const cfg = require("./_config");
+
+    const AIRTABLE_PAT = process.env.AIRTABLE_PAT || process.env.AIRTABLE_API_KEY;
+    const BASE_ID = cfg.BASE_ID || process.env.AIRTABLE_BASE_ID;
+
+    const LOGS_TABLE = cfg.LOGS_TABLE || "Work Hour Log 2 (2026+)";
+    const ACTIVITIES_TABLE = cfg.ACTIVITIES_TABLE || "Work Hour Events and Categories";
+
+    // Logs fields
+    const LOG_ID_FIELD = cfg.LOG_ID_FIELD || "LogID";
+    const LOG_MEMBER_LINK_FIELD = cfg.LOG_MEMBER_LINK_FIELD || "MemberNumber"; // could be link
+    const LOG_MEMBER_NUM_FIELD = cfg.LOG_MEMBER_NUM_FIELD || "MemNum";         // optional numeric copy
+    const LOG_ACTIVITY_LINK_FIELD = cfg.LOG_ACTIVITY_LINK_FIELD || "WHActivity";
+    const LOG_START_FIELD = cfg.LOG_START_FIELD || "StartTime";
+    const LOG_END_FIELD = cfg.LOG_END_FIELD || "EndTime";
+
+    // Activities fields
+    const ACT_NAME_FIELD = cfg.ACT_NAME_FIELD || "Name";
+    const ACT_MODE_FIELD = cfg.ACT_MODE_FIELD || "Mode";
+    const ACT_MAX_MINUTES_FIELD = cfg.ACT_MAX_MINUTES_FIELD || "MaxMinutes";         // Attendance duration
+    const ACT_AUTOCLOSE_FIELD = cfg.ACT_AUTOCLOSE_FIELD || "AutoCloseMaxMinutes";    // Shift autoclose duration
+
+    if (!AIRTABLE_PAT) {
+      return res.status(500).json({ error: "Missing AIRTABLE_PAT env var" });
+    }
+    if (!BASE_ID) {
+      return res.status(500).json({ error: "Missing BASE_ID (set in _config.js or AIRTABLE_BASE_ID)" });
+    }
+
+    const body = await readJson(req);
+    const memberId = body?.memberId || null;
+    const memberNumber = body?.memberNumber ?? null; // numeric
+    const activityId = body?.activityId || null;
 
     if (!memberId || !activityId) {
       return res.status(400).json({ error: "memberId and activityId are required" });
     }
-    const memberNumStr = String(memberNumber ?? "").trim();
-    if (!/^\d{1,4}$/.test(memberNumStr)) {
-      return res.status(400).json({ error: "memberNumber is required (1–4 digits)" });
-    }
-    const memberNum = Number(memberNumStr);
-
-    const baseId = process.env.AIRTABLE_BASE_ID;
-    const token = process.env.AIRTABLE_PAT;
-    if (!baseId || !token) {
-      return res.status(500).json({ error: "Missing AIRTABLE_BASE_ID or AIRTABLE_PAT" });
+    if (memberNumber === null || memberNumber === undefined || Number.isNaN(Number(memberNumber))) {
+      return res.status(400).json({ error: "memberNumber is required (numeric)" });
     }
 
-    // Tables
-    const activitiesTable = "Work Hour Events and Categories";
-    const logsTable = "Work Hour Log 2 (2026+)";
+    // 1) Load activity (to know Mode + durations)
+    const activity = await airtableGet({
+      pat: AIRTABLE_PAT,
+      baseId: BASE_ID,
+      table: ACTIVITIES_TABLE,
+      recordId: activityId,
+    });
 
-    // Activity fields
-    const activityModeField = "Mode"; // Shift or Attendance
-    const activityNameField = "Name";
+    const aFields = activity.fields || {};
+    const activityName = aFields[ACT_NAME_FIELD] ?? "Activity";
+    const activityMode = aFields[ACT_MODE_FIELD] ?? "Shift";
+    const maxMinutesRaw = aFields[ACT_MAX_MINUTES_FIELD];
+    const autoCloseRaw = aFields[ACT_AUTOCLOSE_FIELD];
 
-    // Logs fields (your names)
-    const logIdField = "LogID";               // writable now (you changed it to short text)
-    const logMemberLinkField = "MemberNumber"; // linked to MASTER MEMBERSHIP
-    const logActivityLinkField = "WHActivity"; // linked to Activities
-    const startField = "StartTime";
-    const memNumLookupField = "MemNum";        // lookup in Logs
+    const maxMinutes = toIntOrNull(maxMinutesRaw);
+    const autoCloseMinutes = toIntOrNull(autoCloseRaw);
 
-    // End field name can vary; we’ll try a few common ones until Airtable accepts it
-    const endFieldCandidates = [
-      "EndTime",
-      "End Time",
-      "End",
-      "Clock Out",
-      "ClockOut",
-      "Checked Out",
-      "CheckedOut"
-    ];
+    // 2) Enforce ONE open shift per member globally (EndTime is blank)
+    // We use memberNumber match via LOG_MEMBER_NUM_FIELD if present, else attempt on the link field too.
+    // If your open-shift logic uses a different field, update _config.js values.
+    const filter = `AND(` +
+      `OR({${LOG_MEMBER_NUM_FIELD}}=${Number(memberNumber)}, {${LOG_MEMBER_LINK_FIELD}}=${Number(memberNumber)}),` +
+      `OR({${LOG_END_FIELD}}="", {${LOG_END_FIELD}}=BLANK())` +
+      `)`;
 
-    // Token fields
-    const reminderSentField = "ReminderSentAt";
-    const tokenField = "ClockOutToken";
-    const tokenExpiresField = "ClockOutTokenExpires";
+    const open = await airtableList({
+      pat: AIRTABLE_PAT,
+      baseId: BASE_ID,
+      table: LOGS_TABLE,
+      filterByFormula: filter,
+      maxRecords: 1,
+      sortField: LOG_START_FIELD,
+      sortDir: "desc",
+    });
 
-    // 1) Fetch activity to decide mode
-    const actUrl = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(activitiesTable)}/${activityId}`;
-    const actResp = await airtableFetch(actUrl, { token });
-    if (!actResp.ok) return res.status(actResp.status).json({ error: actResp.text });
+    if ((open.records || []).length > 0) {
+      const openRec = open.records[0];
+      const openStart = openRec.fields?.[LOG_START_FIELD] || null;
 
-    const activity = actResp.json;
-    const mode = activity?.fields?.[activityModeField] ?? null;
-    const activityName = activity?.fields?.[activityNameField] ?? null;
-
-    if (!mode) {
-      return res.status(400).json({
-        error: `Activity missing "${activityModeField}" (expected Shift or Attendance)`,
-        activityId,
-        activityName
+      // ✅ For Attendance: we do NOT want to create another record if already open.
+      // Your kiosk has "auto clock-out then clock-in" toggle; it uses /api/signout for that.
+      return res.status(200).json({
+        status: "already_open",
+        openLogRecordId: openRec.id,
+        openSince: openStart,
+        endFieldUsed: LOG_END_FIELD,
       });
     }
 
-    const nowIso = new Date().toISOString();
+    // 3) Create log record
+    const now = Date.now();
+    const startIso = new Date(now).toISOString();
 
-    // Helper: find open shift for this member using MemNum lookup + End field candidates
-    async function findOpenShift() {
-      for (const endField of endFieldCandidates) {
-        const findUrl = new URL(`https://api.airtable.com/v0/${baseId}/${encodeURIComponent(logsTable)}`);
-        const filter = `AND({${memNumLookupField}}=${memberNum}, {${endField}}=BLANK())`;
-        findUrl.searchParams.set("filterByFormula", filter);
-        findUrl.searchParams.set("maxRecords", "1");
+    // Attendance: EndTime = Start + MaxMinutes (if MaxMinutes missing, treat as 0 => same time)
+    if (String(activityMode).toLowerCase() === "attendance") {
+      const mins = maxMinutes && maxMinutes > 0 ? maxMinutes : 0;
+      const endIso = mins > 0 ? new Date(now + mins * 60 * 1000).toISOString() : startIso;
 
-        const r = await airtableFetch(findUrl.toString(), { token });
-        if (r.ok) {
-          const open = r.json?.records?.[0] || null;
-          return { open, endFieldUsed: endField };
-        }
+      const fields = {};
+      fields[LOG_ACTIVITY_LINK_FIELD] = [activityId];
+      fields[LOG_START_FIELD] = startIso;
+      fields[LOG_END_FIELD] = endIso;
 
-        // If Airtable says that endField doesn't exist, try the next candidate.
-        if (isUnknownFieldError(r)) continue;
+      // store member link (Airtable linked record expects array of record ids)
+      fields[LOG_MEMBER_LINK_FIELD] = [memberId];
 
-        // Other errors: stop and report
-        throw new Error(r.text);
-      }
-      // If none matched, give a clear error
-      throw new Error(
-        `Could not find a valid end-time field. Tried: ${endFieldCandidates.join(", ")}`
-      );
-    }
+      // optional numeric copy if you have it
+      if (LOG_MEMBER_NUM_FIELD) fields[LOG_MEMBER_NUM_FIELD] = Number(memberNumber);
 
-    // Helper: create attendance record (needs end field, so also uses candidates)
-    async function createAttendanceLog() {
-      // We’ll try candidates until Airtable accepts the End field name
-      for (const endField of endFieldCandidates) {
-        const createUrl = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(logsTable)}`;
-        const payload = {
-          records: [{
-            fields: {
-              [logIdField]: `LOG-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`,
-              [logMemberLinkField]: [memberId],
-              [logActivityLinkField]: [activityId],
-              [startField]: nowIso,
-              [endField]: nowIso
-            }
-          }]
-        };
+      // if LogID is a plain text primary, set something deterministic-ish
+      if (LOG_ID_FIELD) fields[LOG_ID_FIELD] = `L-${memberNumber}-${Date.now()}`;
 
-        const r = await airtableFetch(createUrl, { method: "POST", token, body: payload });
-        if (r.ok) {
-          return { created: r.json, endFieldUsed: endField };
-        }
-        if (isUnknownFieldError(r)) continue;
-        throw new Error(r.text);
-      }
+      const created = await airtableCreate({
+        pat: AIRTABLE_PAT,
+        baseId: BASE_ID,
+        table: LOGS_TABLE,
+        fields,
+      });
 
-      throw new Error(
-        `Could not create attendance log; no valid end field found. Tried: ${endFieldCandidates.join(", ")}`
-      );
-    }
-
-    // 2) Attendance: create closed log immediately
-    if (mode === "Attendance") {
-      const { created, endFieldUsed } = await createAttendanceLog();
       return res.status(200).json({
         status: "attendance_recorded",
-        logRecordId: created?.records?.[0]?.id || null,
+        logRecordId: created.id,
         activityName,
-        endFieldUsed
+        startedAt: startIso,
+        endedAt: endIso,
+        minutesUsed: mins,
       });
     }
 
-    // 3) Shift: enforce one open shift per member
-    if (mode === "Shift") {
-      const { open, endFieldUsed } = await findOpenShift();
+    // Shift mode: StartTime now, EndTime left blank for manual signout or nightly auto-close
+    {
+      const fields = {};
+      fields[LOG_ACTIVITY_LINK_FIELD] = [activityId];
+      fields[LOG_START_FIELD] = startIso;
 
-      if (open) {
-        return res.status(200).json({
-          status: "already_open",
-          openLogRecordId: open.id,
-          openSince: open.fields?.[startField] || null,
-          endFieldUsed
-        });
-      }
+      // member link
+      fields[LOG_MEMBER_LINK_FIELD] = [memberId];
 
-      // Create new open shift
-      const logId = `LOG-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
-      const clockOutToken = randomTokenHex(16);
+      // optional numeric copy
+      if (LOG_MEMBER_NUM_FIELD) fields[LOG_MEMBER_NUM_FIELD] = Number(memberNumber);
 
-      const createUrl = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(logsTable)}`;
-      const payload = {
-        records: [{
-          fields: {
-            [logIdField]: logId,
-            [logMemberLinkField]: [memberId],
-            [logActivityLinkField]: [activityId],
-            [startField]: nowIso,
-            [tokenField]: clockOutToken,
-            [tokenExpiresField]: addDaysIso(7),
-            [reminderSentField]: null
-          }
-        }]
-      };
+      // optional LogID
+      if (LOG_ID_FIELD) fields[LOG_ID_FIELD] = `L-${memberNumber}-${Date.now()}`;
 
-      const r = await airtableFetch(createUrl, { method: "POST", token, body: payload });
-      if (!r.ok) return res.status(r.status).json({ error: r.text });
+      // (optional) if you want to store the activity's autoclose minutes in the log for cron:
+      // if you have a field for that, add it here. Otherwise cron can lookup via linked activity.
+      // Example:
+      // const LOG_AUTOCLOSE_MINUTES_FIELD = cfg.LOG_AUTOCLOSE_MINUTES_FIELD || null;
+      // if (LOG_AUTOCLOSE_MINUTES_FIELD && autoCloseMinutes) fields[LOG_AUTOCLOSE_MINUTES_FIELD] = autoCloseMinutes;
+
+      const created = await airtableCreate({
+        pat: AIRTABLE_PAT,
+        baseId: BASE_ID,
+        table: LOGS_TABLE,
+        fields,
+      });
 
       return res.status(200).json({
         status: "shift_started",
-        logRecordId: r.json?.records?.[0]?.id || null,
-        activityName
+        logRecordId: created.id,
+        activityName,
+        autoCloseMinutes: autoCloseMinutes ?? null,
       });
     }
-
-    return res.status(400).json({ error: `Unknown mode "${mode}" (expected Shift or Attendance)` });
-  } catch (e) {
-    return res.status(500).json({ error: String(e) });
+  } catch (err) {
+    return res.status(500).json({ error: "Server error", detail: String(err?.message || err) });
   }
 };
+
+/* -----------------------------
+   Helpers
+------------------------------ */
+
+async function readJson(req) {
+  // Vercel sometimes gives req.body already parsed
+  if (req.body && typeof req.body === "object") return req.body;
+  if (!req.body && req.method === "POST") {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const raw = Buffer.concat(chunks).toString("utf8");
+    if (!raw) return {};
+    return JSON.parse(raw);
+  }
+  if (typeof req.body === "string") return JSON.parse(req.body);
+  return {};
+}
+
+function toIntOrNull(v) {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.trunc(n) : null;
+}
+
+async function airtableGet({ pat, baseId, table, recordId }) {
+  const url = `https://api.airtable.com/v0/${encodeURIComponent(baseId)}/${encodeURIComponent(table)}/${encodeURIComponent(recordId)}`;
+  const r = await fetch(url, {
+    headers: { Authorization: `Bearer ${pat}`, "Content-Type": "application/json" },
+  });
+  const text = await r.text();
+  if (!r.ok) throw new Error(`Airtable GET failed (${r.status}): ${text}`);
+  return JSON.parse(text);
+}
+
+async function airtableList({ pat, baseId, table, filterByFormula, maxRecords = 50, sortField, sortDir = "asc" }) {
+  const params = new URLSearchParams();
+  if (filterByFormula) params.set("filterByFormula", filterByFormula);
+  if (maxRecords) params.set("maxRecords", String(maxRecords));
+  if (sortField) {
+    params.set("sort[0][field]", sortField);
+    params.set("sort[0][direction]", sortDir);
+  }
+
+  const url = `https://api.airtable.com/v0/${encodeURIComponent(baseId)}/${encodeURIComponent(table)}?${params.toString()}`;
+  const r = await fetch(url, {
+    headers: { Authorization: `Bearer ${pat}`, "Content-Type": "application/json" },
+  });
+  const text = await r.text();
+  if (!r.ok) throw new Error(`Airtable LIST failed (${r.status}): ${text}`);
+  return JSON.parse(text);
+}
+
+async function airtableCreate({ pat, baseId, table, fields }) {
+  const url = `https://api.airtable.com/v0/${encodeURIComponent(baseId)}/${encodeURIComponent(table)}`;
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${pat}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ fields }),
+  });
+  const text = await r.text();
+  if (!r.ok) throw new Error(`Airtable CREATE failed (${r.status}): ${text}`);
+  return JSON.parse(text);
+}
