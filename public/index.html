@@ -343,6 +343,14 @@
       localStorage.setItem(attendanceKey(memberNumber, activityId), String(Date.now()));
     }
 
+    // ✅ New helper: if exactly one activity and it is Attendance, return its id
+    function getOnlyAttendanceActivityIdIfSingle() {
+      if (!Array.isArray(state.activities) || state.activities.length !== 1) return null;
+      const a = state.activities[0];
+      const mode = String(a?.mode || "").toLowerCase();
+      return mode === "attendance" ? a.id : null;
+    }
+
     function setMemberUI() {
       const m = state.member;
       $("memberName").textContent = m?.name || "—";
@@ -395,7 +403,6 @@
       subEl.textContent = subtitle || "—";
       detEl.textContent = details || "";
 
-      // loud colors without forcing custom palette everywhere
       card.className = "h-full rounded-3xl border border-white/10 shadow-xl p-6 flex flex-col items-center justify-center text-center bg-white/90 text-slate-900";
       if (kind === "success") {
         card.className += " ring-8 ring-emerald-300";
@@ -407,7 +414,6 @@
 
       showStep(3);
 
-      // auto return to home
       $("autoReturnText").textContent = "Returning to Home automatically…";
       if (state.autoReturnTimer) clearTimeout(state.autoReturnTimer);
       state.autoReturnTimer = setTimeout(() => {
@@ -521,6 +527,44 @@
 
       try {
         await lookupMemberByNumber(memberNum);
+
+        // ✅ If exactly one active activity and it is Attendance, auto-record immediately.
+        const onlyAttendanceId = getOnlyAttendanceActivityIdIfSingle();
+        if (onlyAttendanceId) {
+          const lastAt = getLastAttendanceAt(state.member.number, onlyAttendanceId);
+          if (lastAt && (Date.now() - lastAt) < ATTENDANCE_DEDUP_MS) {
+            const secs = Math.ceil((ATTENDANCE_DEDUP_MS - (Date.now() - lastAt)) / 1000);
+            showResult({
+              kind: "warn",
+              title: "Already Recorded ⚠️",
+              subtitle: "Please wait before scanning again",
+              details: `Attendance was just recorded. Try again in ~${secs}s.`
+            });
+            return;
+          }
+
+          const data = await apiRecordClockIn(onlyAttendanceId);
+          if (data.status === "attendance_recorded") {
+            setLastAttendanceNow(state.member.number, onlyAttendanceId);
+            showResult({
+              kind: "success",
+              title: "Attendance Recorded ✅",
+              subtitle: data.activityName || state.activities[0]?.name || "Attendance",
+              details: `Member #${state.member.number} — ${state.member.name}`
+            });
+            return;
+          }
+
+          showResult({
+            kind: "warn",
+            title: "Unexpected Result",
+            subtitle: String(data.status),
+            details: "Please see Khory."
+          });
+          return;
+        }
+
+        // Default behavior: show member loaded then go to Step 2
         showResult({ kind: "success", title: "Member Loaded", subtitle: `${state.member.name}`, details: `Member #${state.member.number}. Tap Home or Back to continue.` });
 
         if (state.autoReturnTimer) clearTimeout(state.autoReturnTimer);
@@ -594,6 +638,7 @@
             return;
           }
 
+          // Auto clock-out then try again
           const out = await apiSignOut();
           if (out.status !== "signed_out" && out.status !== "no_open_shift") {
             showResult({ kind: "error", title: "Auto Clock-Out Failed", subtitle: "Please see Khory", details: `Result: ${out.status}` });
@@ -606,9 +651,7 @@
             return;
           }
           if (data2.status === "attendance_recorded") {
-            // ✅ mark for dedupe window even on switch
             setLastAttendanceNow(state.member.number, activityId);
-
             showResult({ kind: "success", title: "Attendance Recorded ✅", subtitle: data2.activityName || "Activity", details: "Auto clock-out complete." });
             return;
           }
