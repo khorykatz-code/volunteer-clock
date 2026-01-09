@@ -32,35 +32,35 @@ function isUnknownFieldError(resp) {
   return resp?.json?.error?.type === "UNKNOWN_FIELD_NAME";
 }
 
-// ✅ NEW: compute attendance end time using activity "max time" minutes
-function getAttendanceEndIso(activityFields, now) {
-  // Try a few likely field names in Activities table
-  const maxMinutesFieldCandidates = [
-    "Max Minutes",
-    "Max Time",
-    "MaxTime",
-    "Max Time (min)",
-    "Max Minutes (Attendance)",
-    "Attendance Max Minutes",
-    "Attendance Max",
-    "Duration Minutes",
-    "Duration"
-  ];
+// ✅ Robust minutes parser (handles number, "30", "30 minutes", [30], ["30"])
+function coerceMinutes(value) {
+  if (value == null) return null;
 
-  let maxRaw = null;
-  for (const f of maxMinutesFieldCandidates) {
-    if (activityFields && Object.prototype.hasOwnProperty.call(activityFields, f)) {
-      maxRaw = activityFields[f];
-      break;
-    }
+  if (Array.isArray(value)) {
+    if (value.length === 0) return null;
+    return coerceMinutes(value[0]);
   }
 
-  const maxMin = Number(maxRaw);
-  // If missing/invalid, fall back to "now" (current behavior)
-  if (!Number.isFinite(maxMin) || maxMin <= 0) return now.toISOString();
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
 
-  const end = new Date(now.getTime() + maxMin * 60 * 1000);
-  return end.toISOString();
+  if (typeof value === "string") {
+    const s = value.trim();
+    if (!s) return null;
+
+    const n1 = Number(s);
+    if (Number.isFinite(n1)) return n1;
+
+    const m = s.match(/(\d+(\.\d+)?)/);
+    if (m) {
+      const n2 = Number(m[1]);
+      if (Number.isFinite(n2)) return n2;
+    }
+    return null;
+  }
+
+  return null;
 }
 
 module.exports = async (req, res) => {
@@ -96,6 +96,7 @@ module.exports = async (req, res) => {
     // Activity fields
     const activityModeField = "Mode"; // Shift or Attendance
     const activityNameField = "Name";
+    const activityAutoCloseMaxMinutesField = "AutoCloseMaxMinutes"; // ✅ YOUR REAL FIELD
 
     // Logs fields (your names)
     const logIdField = "LogID";                // writable now (you changed it to short text)
@@ -169,7 +170,6 @@ module.exports = async (req, res) => {
 
     // Helper: create attendance record (needs end field, so also uses candidates)
     async function createAttendanceLog(endIso) {
-      // We’ll try candidates until Airtable accepts the End field name
       for (const endField of endFieldCandidates) {
         const createUrl = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(logsTable)}`;
         const payload = {
@@ -179,7 +179,6 @@ module.exports = async (req, res) => {
               [logMemberLinkField]: [memberId],
               [logActivityLinkField]: [activityId],
               [startField]: nowIso,
-              // ✅ CHANGED: attendance end time uses max time
               [endField]: endIso
             }
           }]
@@ -198,23 +197,33 @@ module.exports = async (req, res) => {
       );
     }
 
-    // 2) Attendance: create closed log immediately, with end = now + max minutes
-    if (mode === "Attendance") {
-      const endIso = getAttendanceEndIso(activityFields, now);
+    // 2) Attendance: create closed log immediately with end = now + AutoCloseMaxMinutes
+    if (String(mode).trim() === "Attendance") {
+      const rawMax = activityFields?.[activityAutoCloseMaxMinutesField];
+      const maxMinutes = coerceMinutes(rawMax);
+
+      const endIso =
+        Number.isFinite(maxMinutes) && maxMinutes > 0
+          ? new Date(now.getTime() + maxMinutes * 60 * 1000).toISOString()
+          : nowIso;
 
       const { created, endFieldUsed } = await createAttendanceLog(endIso);
+
       return res.status(200).json({
         status: "attendance_recorded",
         logRecordId: created?.records?.[0]?.id || null,
         activityName,
         endFieldUsed,
-        // helpful for debugging in UI logs:
+
+        // helpful for debugging:
+        autoCloseMaxMinutes: maxMinutes ?? null,
+        autoCloseMaxMinutesRaw: rawMax ?? null,
         attendanceEndIso: endIso
       });
     }
 
     // 3) Shift: enforce one open shift per member
-    if (mode === "Shift") {
+    if (String(mode).trim() === "Shift") {
       const { open, endFieldUsed } = await findOpenShift();
 
       if (open) {
