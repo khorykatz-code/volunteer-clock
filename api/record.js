@@ -168,59 +168,60 @@ module.exports = async (req, res) => {
       );
     }
 
-    // Helper: create attendance record (needs end field, so also uses candidates)
-    async function createAttendanceLog(endIso) {
-      for (const endField of endFieldCandidates) {
-        const createUrl = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(logsTable)}`;
-        const payload = {
-          records: [{
-            fields: {
-              [logIdField]: `LOG-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`,
-              [logMemberLinkField]: [memberId],
-              [logActivityLinkField]: [activityId],
-              [startField]: nowIso,
-              [endField]: endIso
-            }
-          }]
-        };
-
-        const r = await airtableFetch(createUrl, { method: "POST", token, body: payload });
-        if (r.ok) {
-          return { created: r.json, endFieldUsed: endField };
+  // Helper: create attendance record (needs end field, so also uses candidates)
+async function createAttendanceLog(endIso) {
+  for (const endField of endFieldCandidates) {
+    const createUrl = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(logsTable)}`;
+    const payload = {
+      records: [{
+        fields: {
+          [logIdField]: `LOG-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`,
+          [logMemberLinkField]: [memberId],
+          [logActivityLinkField]: [activityId],
+          [startField]: nowIso,
+          [endField]: endIso
         }
-        if (isUnknownFieldError(r)) continue;
-        throw new Error(r.text);
-      }
+      }]
+    };
 
-      throw new Error(
-        `Could not create attendance log; no valid end field found. Tried: ${endFieldCandidates.join(", ")}`
-      );
+    const r = await airtableFetch(createUrl, { method: "POST", token, body: payload });
+    if (r.ok) {
+      return { created: r.json, endFieldUsed: endField };
     }
+    if (isUnknownFieldError(r)) continue;
+    throw new Error(r.text);
+  }
 
-    // 2) Attendance: create closed log immediately with end = now + AutoCloseMaxMinutes
-    if (String(mode).trim() === "Attendance") {
-      const rawMax = activityFields?.[activityAutoCloseMaxMinutesField];
-      const maxMinutes = coerceMinutes(rawMax);
+  throw new Error(
+    `Could not create attendance log; no valid end field found. Tried: ${endFieldCandidates.join(", ")}`
+  );
+}
 
-      const endIso =
-        Number.isFinite(maxMinutes) && maxMinutes > 0
-          ? new Date(now.getTime() + maxMinutes * 60 * 1000).toISOString()
-          : nowIso;
+// 2) Attendance: create closed log immediately with end = now + MaxMinutes
+if (String(mode).trim() === "Attendance") {
+  const rawMax = activityFields?.["MaxMinutes"];   // ✅ changed
+  const maxMinutes = coerceMinutes(rawMax);
 
-      const { created, endFieldUsed } = await createAttendanceLog(endIso);
+  const endIso =
+    Number.isFinite(maxMinutes) && maxMinutes > 0
+      ? new Date(now.getTime() + maxMinutes * 60 * 1000).toISOString()
+      : nowIso;
 
-      return res.status(200).json({
-        status: "attendance_recorded",
-        logRecordId: created?.records?.[0]?.id || null,
-        activityName,
-        endFieldUsed,
+  const { created, endFieldUsed } = await createAttendanceLog(endIso);
 
-        // helpful for debugging:
-        autoCloseMaxMinutes: maxMinutes ?? null,
-        autoCloseMaxMinutesRaw: rawMax ?? null,
-        attendanceEndIso: endIso
-      });
-    }
+  return res.status(200).json({
+    status: "attendance_recorded",
+    logRecordId: created?.records?.[0]?.id || null,
+    activityName,
+    endFieldUsed,
+
+    // helpful for debugging:
+    maxMinutes: maxMinutes ?? null,
+    maxMinutesRaw: rawMax ?? null,
+    attendanceEndIso: endIso
+  });
+}
+
 
     // 3) Shift: enforce one open shift per member
     if (String(mode).trim() === "Shift") {
