@@ -1,5 +1,7 @@
 module.exports = async (req, res) => {
   try {
+    if (req.method !== "GET") return res.status(405).json({ error: "GET only" });
+
     const q = String(req.query.name || "").trim();
     if (q.length < 2) {
       return res.status(400).json({ error: "Name search must be at least 2 characters" });
@@ -16,24 +18,24 @@ module.exports = async (req, res) => {
     const nameField = "Full Name";
     const membershipTypeField = "MEMBERSHIP TYPE";
 
-    // Allowed membership types
+    // Only allow these types to appear
     const allowed = ["AM", "AME", "LM", "DW"];
     const allowedFormula = `OR(${allowed.map(t => `{${membershipTypeField}}="${t}"`).join(",")})`;
 
-    // Case-insensitive "contains" match
-    // Escape quotes for Airtable formula
+    // Case-insensitive contains search on Full Name
     const safe = q.replace(/"/g, '\\"');
     const nameFormula = `FIND(LOWER("${safe}"), LOWER({${nameField}}))`;
 
     const url = new URL(`https://api.airtable.com/v0/${baseId}/${encodeURIComponent(table)}`);
     url.searchParams.set("filterByFormula", `AND(${allowedFormula}, ${nameFormula})`);
-    url.searchParams.set("maxRecords", "8");
+    url.searchParams.set("maxRecords", "4");
 
     const r = await fetch(url.toString(), { headers: { Authorization: `Bearer ${token}` } });
     const text = await r.text();
     if (!r.ok) return res.status(r.status).json({ error: text });
 
     const data = JSON.parse(text);
+
     const members = (data.records || [])
       .map(rec => ({
         id: rec.id,
