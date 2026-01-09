@@ -32,6 +32,37 @@ function isUnknownFieldError(resp) {
   return resp?.json?.error?.type === "UNKNOWN_FIELD_NAME";
 }
 
+// ✅ NEW: compute attendance end time using activity "max time" minutes
+function getAttendanceEndIso(activityFields, now) {
+  // Try a few likely field names in Activities table
+  const maxMinutesFieldCandidates = [
+    "Max Minutes",
+    "Max Time",
+    "MaxTime",
+    "Max Time (min)",
+    "Max Minutes (Attendance)",
+    "Attendance Max Minutes",
+    "Attendance Max",
+    "Duration Minutes",
+    "Duration"
+  ];
+
+  let maxRaw = null;
+  for (const f of maxMinutesFieldCandidates) {
+    if (activityFields && Object.prototype.hasOwnProperty.call(activityFields, f)) {
+      maxRaw = activityFields[f];
+      break;
+    }
+  }
+
+  const maxMin = Number(maxRaw);
+  // If missing/invalid, fall back to "now" (current behavior)
+  if (!Number.isFinite(maxMin) || maxMin <= 0) return now.toISOString();
+
+  const end = new Date(now.getTime() + maxMin * 60 * 1000);
+  return end.toISOString();
+}
+
 module.exports = async (req, res) => {
   // ---- CORS (so browser tools + your future web UI work) ----
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -67,7 +98,7 @@ module.exports = async (req, res) => {
     const activityNameField = "Name";
 
     // Logs fields (your names)
-    const logIdField = "LogID";               // writable now (you changed it to short text)
+    const logIdField = "LogID";                // writable now (you changed it to short text)
     const logMemberLinkField = "MemberNumber"; // linked to MASTER MEMBERSHIP
     const logActivityLinkField = "WHActivity"; // linked to Activities
     const startField = "StartTime";
@@ -95,8 +126,9 @@ module.exports = async (req, res) => {
     if (!actResp.ok) return res.status(actResp.status).json({ error: actResp.text });
 
     const activity = actResp.json;
-    const mode = activity?.fields?.[activityModeField] ?? null;
-    const activityName = activity?.fields?.[activityNameField] ?? null;
+    const activityFields = activity?.fields || {};
+    const mode = activityFields?.[activityModeField] ?? null;
+    const activityName = activityFields?.[activityNameField] ?? null;
 
     if (!mode) {
       return res.status(400).json({
@@ -106,7 +138,8 @@ module.exports = async (req, res) => {
       });
     }
 
-    const nowIso = new Date().toISOString();
+    const now = new Date();
+    const nowIso = now.toISOString();
 
     // Helper: find open shift for this member using MemNum lookup + End field candidates
     async function findOpenShift() {
@@ -135,7 +168,7 @@ module.exports = async (req, res) => {
     }
 
     // Helper: create attendance record (needs end field, so also uses candidates)
-    async function createAttendanceLog() {
+    async function createAttendanceLog(endIso) {
       // We’ll try candidates until Airtable accepts the End field name
       for (const endField of endFieldCandidates) {
         const createUrl = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(logsTable)}`;
@@ -146,7 +179,8 @@ module.exports = async (req, res) => {
               [logMemberLinkField]: [memberId],
               [logActivityLinkField]: [activityId],
               [startField]: nowIso,
-              [endField]: nowIso
+              // ✅ CHANGED: attendance end time uses max time
+              [endField]: endIso
             }
           }]
         };
@@ -164,14 +198,18 @@ module.exports = async (req, res) => {
       );
     }
 
-    // 2) Attendance: create closed log immediately
+    // 2) Attendance: create closed log immediately, with end = now + max minutes
     if (mode === "Attendance") {
-      const { created, endFieldUsed } = await createAttendanceLog();
+      const endIso = getAttendanceEndIso(activityFields, now);
+
+      const { created, endFieldUsed } = await createAttendanceLog(endIso);
       return res.status(200).json({
         status: "attendance_recorded",
         logRecordId: created?.records?.[0]?.id || null,
         activityName,
-        endFieldUsed
+        endFieldUsed,
+        // helpful for debugging in UI logs:
+        attendanceEndIso: endIso
       });
     }
 
