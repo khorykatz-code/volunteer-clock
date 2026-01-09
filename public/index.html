@@ -467,7 +467,7 @@
         body: JSON.stringify(body)
       });
       const data = await r.json();
-      if (!r.ok) throw new Error(data?.error || "Clock in failed");
+      if (!r.ok) throw new Error(data?.detail || data?.error || "Clock in failed");
       return data;
     }
 
