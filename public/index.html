@@ -478,7 +478,7 @@
         body: JSON.stringify({ memberNumber: Number(state.member.number) })
       });
       const data = await r.json();
-      if (!r.ok) throw new Error(data?.error || "Clock out failed");
+      if (!r.ok) throw new Error(data?.error || data?.error || "Clock out failed");
       return data;
     }
 
